@@ -115,7 +115,10 @@
     "typeRoots": [
       "./node_modules/@types",
       "./src/types"
-    ]
+    ],
+
+    // Set the Source Root
+    "rootDir": "./src"
 
   },
 

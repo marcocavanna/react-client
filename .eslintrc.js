@@ -28,6 +28,7 @@ module.exports = {
     'no-nested-ternary'                : [ 'off' ],
     'no-param-reassign'                : [ 'error', { props: false } ],
     'no-useless-escape'                : [ 'off' ],
+    'no-underscore-dangle'             : [ 'off' ],
     'object-curly-newline'             : [ 'error', { consistent: true } ],
     'padded-blocks'                    : [ 'off' ],
     'prefer-promise-reject-errors'     : [ 'off' ],
