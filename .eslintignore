@@ -1,0 +1,14 @@
+# exclude internal font awesome mapper
+src/react/lib/fontAwesomeMapper.ts
+src/react/fontawesome.ts
+
+# don't ever lint node_modules
+node_modules
+
+# don't lint build output (make sure it's set to your correct build folder name)
+dist
+build
+
+# don't lint nyc coverage output and other static files
+coverage
+storybook-static

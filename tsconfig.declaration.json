@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "removeComments": false,
+    "declaration": true,
+    "declarationDir": "build/types",
+    "emitDeclarationOnly": true
+  },
+
+  "include": [
+    "./src/**/*"
+  ],
+
+  "exclude": [
+    "./src/**/*.stories.tsx",
+    "./src/**/*.test.tsx",
+    "./src/test/**/*"
+  ]
+}

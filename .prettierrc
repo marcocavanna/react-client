@@ -1,0 +1,13 @@
+{
+  "singleQuote": true,
+  "trailingComma": "es5",
+  "bracketSpacing": true,
+  "overrides": [
+    {
+      "files": "*.d.ts",
+      "options": {
+        "parser": "typescript"
+      }
+    }
+  ]
+}
