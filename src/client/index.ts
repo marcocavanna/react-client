@@ -1,7 +1,11 @@
-import axios, { AxiosError, AxiosResponse } from 'axios';
+import logdown from 'logdown';
+
+import axios, { AxiosError, AxiosResponse, AxiosRequestConfig, AxiosInstance } from 'axios';
+
+import * as localforage from 'localforage';
 
 import { EventEmitter } from 'events';
-import * as localforage from 'localforage';
+import invariant from 'tiny-invariant';
 
 import { will } from '../utils';
 
@@ -13,14 +17,25 @@ import {
   ClientTokens,
   ClientWillResponse,
   ClientUnsubscribe,
-  GenericAPIResponse
+  GenericAPIResponse,
+  ClientConfiguration,
+  ClientLoggerLevel,
+  ClientLoggerSettings,
+  ClientLocalStorageSettings,
+  ClientRequestSettings, ClientEventHandler, ClientToken,
 } from '../interfaces';
+
+
+/* --------
+ * Internal Types
+ * -------- */
+type ClientFeature = 'logger' | 'localStorage';
 
 
 /* --------
  * Client Definition
  * -------- */
-class Client {
+class Client<UserData> {
 
   /* --------
    * Singleton Methods
@@ -30,14 +45,14 @@ class Client {
    * -------- */
 
   /** Init a Client Container */
-  private static _instance: Client | null = null;
+  private static _instance: Client<any> | null = null;
 
 
   /** Declare a function to get Client instance */
-  public static getInstance(): Client {
+  public static getInstance<UserDataInstance>(config: ClientConfiguration): Client<UserDataInstance> {
     /** If a Client instance doesn't exists, create a new one */
     if (!Client._instance) {
-      Client._instance = new Client();
+      Client._instance = new Client<UserDataInstance>(config);
     }
     /** Return the Singleton Instance of Client */
     return Client._instance;
@@ -45,88 +60,97 @@ class Client {
 
 
   /* --------
-   * LocalForage Configuration
+   * Feature Enabled
    * -------- */
-  private static localDB = localforage.createInstance({
-    name       : 'MooxNext',
-    version    : 2.0,
-    storeName  : 'MooxClient',
-    description: 'Container for Client Data and Auth'
-  });
+  private _features: Record<ClientFeature, boolean> = {
+    localStorage: false,
+    logger      : false,
+  };
 
-  private static accessTokenDbField = 'accessToken';
 
-  private static refreshTokenDbField = 'refreshToken';
+  /* --------
+   * Logger Definition
+   * -------- */
+  private readonly logLevels: Record<ClientLoggerLevel, number> = {
+    debug: 0,
+    warn : 5,
+    error: 10,
+  };
 
-  private static userDataDbField = 'userData';
+  private readonly loggerConfig: ClientLoggerSettings = {
+    minLogLevel        : 'error',
+    silenceInProduction: true,
+  };
+
+
+  private useLogger(logger: logdown.Logger, level: ClientLoggerLevel, ...args: any[]) {
+    /** If log is not enabled, skip */
+    if (!this._features.logger) {
+      return;
+    }
+
+    /** Avoid logging in production if configured */
+    if (process.env.NODE_ENV === 'production' && this.loggerConfig.silenceInProduction) {
+      return;
+    }
+
+    /** Avoid logging if level is not reached */
+    if (this.logLevels[level] < this.logLevels[this.loggerConfig.minLogLevel]) {
+      return;
+    }
+
+    /** Use the logger function */
+    logger[level](...args);
+  }
+
+
+  private readonly initLogger = logdown('init');
+
+  private readonly eventLogger = logdown('event');
+
+  private readonly authLogger = logdown('auth');
+
+  private readonly requestLogger = logdown('request');
+
+
+  /* --------
+   * Internal Variable Definition
+   * -------- */
+  private readonly localStorageSettings: ClientLocalStorageSettings = {
+    storeAccessTokenIn : undefined,
+    storeRefreshTokenIn: undefined,
+    storeUserDataIn    : undefined,
+  };
+
+  private readonly db: LocalForage | undefined;
 
 
   /* --------
    * Axios Client Configuration
    * -------- */
-  public static client = axios.create({
-    baseURL       : process.env.NODE_ENV === 'production'
-      ? 'https://moox-next-api.container.appbuckets.io'
-      : 'http://127.0.0.1:3000/',
-    timeout       : process.env.NODE_ENV === 'development' ? 120_000 : 15_000,
-    validateStatus: status => status >= 200 && status < 300
-  });
+  private readonly prepareURL = (url: string) => encodeURI(url.replace(/(^\/*)|(\/*$)/, ''));
 
-  private static prepareURL = (url: string) => encodeURI(url.replace(/(^\/*)|(\/*$)/, ''));
+  private readonly client: AxiosInstance;
 
-  private static changeClientStateOnRequest = false;
+  private readonly requestsSettings: ClientRequestSettings;
 
-  private static accessTokenErrorWillInvalidate = true;
-
-  private static accessTokenValidityThreshold = 60_000;
-
-  private static accessTokenHeaderName = 'X-MxAccessToken';
-
-  private static refreshTokenHeaderName = 'X-MxRefreshToken';
-
-
-  /* --------
-   * Client Debugger Methods
-   * -------- */
-  private static isDebugEnabled = false && process.env.NODE_ENV === 'development';
-
-  private static lastDebug = Date.now();
-
-
-  private static debug(...args: any): void {
-    /** Return if Debug is inactive */
-    if (!Client.isDebugEnabled) {
-      return;
-    }
-
-    /** Get timestamp and elapsed time */
-    const now = Date.now();
-    const elapsed = now - Client.lastDebug;
-    /** Write message into Console */
-    window.console.info(`[ +${elapsed}ms ] - Client Debug\n`, ...args);
-    /** Save debug time */
-    Client.lastDebug = now;
-  }
-
-
-  /* --------
-   * Request Error Parser
-   * -------- */
-  public static genericRequestError: ClientRequestError = {
+  private readonly genericRequestError: ClientRequestError = {
     statusCode: 500,
     message   : 'Server Error',
-    error     : 'server-error'
+    error     : 'server-error',
   };
 
 
-  private static parseRequestError(error: any): ClientRequestError {
+  private parseRequestError(error: any): ClientRequestError {
     /** If error is an Array, set data key of the generic object */
     if (typeof error !== 'object' || error === null || Array.isArray(error)) {
-      Client.debug(
+      this.useLogger(
+        this.requestLogger,
+        'warn',
         'Error is not a valid Object. Putting the original error into data field',
-        { error }
+        { error },
       );
-      return Client.genericRequestError;
+      return this.genericRequestError;
     }
 
     /** If error is an Axios Error, get props */
@@ -134,74 +158,86 @@ class Client {
       const { response } = error as AxiosError;
 
       if (response) {
-        Client.debug(
+        this.useLogger(
+          this.requestLogger,
+          'debug',
           'Error is a valid Axios Error. Keeping original properties',
-          { response }
+          { response },
         );
         return {
           statusCode: response.status,
-          error     : response.data?.error ?? Client.genericRequestError.error,
-          message   : response.data?.message ?? Client.genericRequestError.message
+          error     : response.data?.error ?? this.genericRequestError.error,
+          message   : response.data?.message ?? this.genericRequestError.message,
         };
       }
 
-      Client.debug(
+      this.useLogger(
+        this.requestLogger,
+        'warn',
         'Error is not a valid Axios Error, fallback to generic error',
-        { error }
+        { error },
       );
 
-      return Client.genericRequestError;
+      return this.genericRequestError;
     }
 
     /** If error is an instance of Error, keep the message */
     if (error instanceof Error) {
-      Client.debug(
+      this.useLogger(
+        this.requestLogger,
+        'debug',
         'Error is an instance of Error, keep the message',
-        { error }
+        { error },
       );
       return {
-        statusCode: Client.genericRequestError.statusCode,
+        statusCode: this.genericRequestError.statusCode,
         error     : error.name,
-        message   : error.message
+        message   : error.message,
       };
     }
 
     /** Fallback to generic Error */
-    Client.debug('Fallback to generic Error', { error });
-    return Client.genericRequestError;
+    this.useLogger(
+      this.requestLogger,
+      'warn',
+      'Fallback to generic Error',
+      { error },
+    );
+    return this.genericRequestError;
   }
 
 
   /* --------
-   * Client Event Emitters
+   * Client Event Emitter Settings
    * -------- */
-  private events = new EventEmitter();
+  private readonly events = new EventEmitter();
 
 
-  public subscribeToClientStateChange(callback: (clientState: ClientState) => void, context?: any): ClientUnsubscribe {
+  public subscribeToClientStateChange(
+    callback: ClientEventHandler<UserData>,
+    context?: any,
+  ): ClientUnsubscribe {
     /** Wrap the callback to a known function */
     const wrappedCallback = () => {
       callback.apply(context, [ this.state ]);
     };
     /** Create a new Listener to Client State Change event */
-    Client.debug(
+    this.useLogger(
+      this.eventLogger,
+      'debug',
       'A new observer has been registered for clientState event',
-      {
-        callback,
-        context
-      }
+      { callback, context },
     );
     this.events.on('clientStateChange', wrappedCallback);
     /** Return a function to unsubscribe the listener */
     return () => {
       /** Remove the listener */
       this.events.off('clientStateChange', wrappedCallback);
-      Client.debug(
+      this.useLogger(
+        this.eventLogger,
+        'debug',
         'An observer for clientState event has been removed',
-        {
-          callback,
-          context
-        }
+        { callback, context },
       );
     };
   }
@@ -216,7 +252,12 @@ class Client {
       return;
     }
 
-    Client.debug('Emitting clientStateChange event', { clientState: this.state });
+    this.useLogger(
+      this.eventLogger,
+      'debug',
+      'Emitting clientStateChange event',
+      { currentState: this.state },
+    );
 
     this.events.emit('clientStateChange');
   }
@@ -225,65 +266,128 @@ class Client {
   /* --------
    * Client Instance Props and Data
    * -------- */
-  private _state: Omit<ClientState, 'hasAuth'> = {
+  private _state: Omit<ClientState<UserData>, 'hasAuth'> = {
     isLoaded           : false,
     isPerformingRequest: false,
-    userData           : null
+    userData           : null,
   };
 
   private _tokens: ClientTokens = {
     accessToken : undefined,
-    refreshToken: undefined
+    refreshToken: undefined,
   };
 
 
-  /** Make the constructor private, to avoid direct instance */
-  private constructor() {
-    /** Initialize the Client */
-    this.__init()
-      /** Init Async function will never throw */
-      .then((userData) => {
-        /** If no userData exists, purge auth */
-        if (!userData) {
-          this.resetClientAuth();
-        }
-
-        /** Set the new State */
-        this.setState({ isLoaded: true });
-      });
-  }
-
-
   /* --------
-   * Client Initialization Process
+   * Client Instance Creator
    * -------- */
+  private constructor(config: ClientConfiguration) {
+    /** Assert Configuration is a Valid Object */
+    invariant(
+      typeof config === 'object' && config !== null && !Array.isArray(config),
+      'Configuration params must be a valid ClientConfiguration object.\n'
+      + `It was received ${typeof config} instead.`,
+    );
 
-  /**
-   * Initialize the Client.
-   * The __init function will never throw,
-   * any error occurred in this process will be
-   * considered like a non authorized client
-   */
-  async __init(): Promise<APIResponse.Auth.User | null> {
-    try {
-      /** Get Fresh User Data */
-      const userData = await this.getUserData();
-      /** Save response */
-      await this.saveUserData(userData);
-      /** Return to constructor */
-      return userData;
+
+    // ----
+    // Set up Logger Feature
+    // ----
+    const { logger = { enabled: false } } = config;
+
+    if (logger.enabled) {
+      /** Set the Minimum Logger Level */
+      if (logger.minLogLevel) {
+        this.loggerConfig.minLogLevel = logger.minLogLevel;
+      }
+      /** Set the silence in production variable */
+      this.loggerConfig.silenceInProduction = logger.silenceInProduction ?? true;
+      /** Enable the Logger */
+      this._features.logger = true;
     }
-    catch (initError) {
-      /** Log the error into the console, only if is in development mode */
-      if (process.env.NODE_ENV === 'development') {
-        global.console.log(
-          'An initialize error occurred, maybe the client has no any auth.',
-          initError
+
+
+    this.useLogger(this.initLogger, 'debug', 'Hello, Client Logger has been enabled!');
+
+
+    // ----
+    // Initialize the Local DB
+    // ----
+    const { localStorage = { enabled: false } } = config;
+
+    if (localStorage.enabled) {
+      /** Strip options */
+      const {
+        enabled,
+        storeAccessTokenIn,
+        storeRefreshTokenIn,
+        storeUserDataIn,
+        ...localforageConfig
+      } = localStorage;
+
+      /** Create the new Instance of the LocalForage Module */
+      try {
+        /** Create the Instance */
+        this.db = localforage.createInstance(localforageConfig);
+        /** Enable Feature */
+        this._features.localStorage = true;
+        /** Set Config */
+        this.localStorageSettings = {
+          storeAccessTokenIn,
+          storeRefreshTokenIn,
+          storeUserDataIn,
+        };
+        /** Show success */
+        this.useLogger(this.initLogger, 'debug', 'The LocalStorage instance has been created');
+      }
+      catch (e) {
+        /** Remove instance */
+        this.db = undefined;
+        /** Remove feature */
+        this._features.localStorage = false;
+        /** Show the error */
+        this.useLogger(
+          this.initLogger,
+          'error',
+          'Ops, it looks like you could not use LocalStorage. An error occurred, i\'ll show you',
+          e,
         );
       }
-      /** Return invalid user data */
-      return null;
     }
+
+
+    // ----
+    // Set up Axios Instance
+    // ----
+    const { axiosSettings, requests } = config;
+
+    /** Get Configuration using Environment */
+    this.useLogger(this.initLogger, 'debug', 'Loading AxiosConfiguration settings');
+
+    if (process.env.NODE_ENV && typeof (axiosSettings as Record<string, AxiosRequestConfig>)[process.env.NODE_ENV] === 'object') {
+      this.useLogger(this.initLogger, 'debug', `Loading AxiosConfiguration for ${process.env.NODE_ENV} environment`);
+    }
+
+    const environmentSettings = process.env.NODE_ENV
+      ? (axiosSettings as Record<string, AxiosRequestConfig>)[process.env.NODE_ENV] ?? (axiosSettings as AxiosRequestConfig)
+      : axiosSettings as AxiosRequestConfig;
+
+    /** Assert Configuration is a valid object */
+    invariant(
+      typeof environmentSettings === 'object' && environmentSettings !== null && typeof environmentSettings.baseURL === 'string',
+      'An invalid configuration object has been found to create a correct Axios Instance.\n'
+      + 'The \'baseURL\' key is a required parameter.',
+    );
+
+    /** Initialize the client */
+    this.client = axios.create(environmentSettings);
+
+    this.useLogger(this.initLogger, 'debug', 'Axios Instance created successfully');
+
+    /** Set settings */
+    this.requestsSettings = requests ?? {};
+
+    this.useLogger(this.initLogger, 'debug', 'Loaded Requests Settings Object');
   }
 
 
@@ -296,13 +400,21 @@ class Client {
     /** Revoke all local tokens */
     this._tokens = {
       accessToken : undefined,
-      refreshToken: undefined
+      refreshToken: undefined,
     };
 
     /** Remove LocalStorage element */
-    await Client.localDB.removeItem(Client.accessTokenDbField);
-    await Client.localDB.removeItem(Client.refreshTokenDbField);
-    await Client.localDB.removeItem(Client.userDataDbField);
+    if (this.db) {
+      if (this.localStorageSettings.storeAccessTokenIn) {
+        await this.db.removeItem(this.localStorageSettings.storeAccessTokenIn);
+      }
+      if (this.localStorageSettings.storeRefreshTokenIn) {
+        await this.db.removeItem(this.localStorageSettings.storeRefreshTokenIn);
+      }
+      if (this.localStorageSettings.storeUserDataIn) {
+        await this.db.removeItem(this.localStorageSettings.storeUserDataIn);
+      }
+    }
 
     /** Update the state */
     this.setState({ userData: null });
@@ -312,25 +424,22 @@ class Client {
   /* --------
    * UserData Management
    * -------- */
-  public async getUserData(): Promise<APIResponse.Auth.User> {
-    return this.request<APIResponse.Auth.User>({
-      withAccessToken: true,
-      method         : 'GET',
-      url            : '/auth/who-am-i'
-    });
-  }
-
-
-  private async saveUserData(userData?: APIResponse.Auth.User): Promise<void> {
+  private async saveUserData(userData?: UserData): Promise<void> {
     this.setState({
-      userData: userData ?? null
+      userData: userData ?? null,
     });
 
-    if (userData) {
-      await will(Client.localDB.setItem<APIResponse.Auth.User>(Client.userDataDbField, userData));
-    }
-    else {
-      await will(Client.localDB.removeItem(Client.userDataDbField));
+    if (this.db && this.localStorageSettings.storeUserDataIn) {
+      if (userData) {
+        await will(
+          this.db.setItem(this.localStorageSettings.storeUserDataIn, userData),
+        );
+      }
+      else {
+        await will(
+          this.db.removeItem(this.localStorageSettings.storeUserDataIn),
+        );
+      }
     }
   }
 
@@ -338,110 +447,143 @@ class Client {
   /* --------
    * Public Getters
    * -------- */
-  public get state(): ClientState {
+  public get state(): ClientState<UserData> {
     return {
       ...this._state,
-      hasAuth: !!this._state.userData && this.hasValidAccessToken && this.hasValidRefreshToken
+      hasAuth: !!this._state.userData && this.hasValidAccessToken && this.hasValidRefreshToken,
     };
   }
 
 
   private get hasValidAccessToken(): boolean {
+    /** If requests won't use access token, return always true */
+    if (!this.requestsSettings.useAccessToken) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'Client is not using AccessToken validation.',
+      );
+      return true;
+    }
+
     /** Assert accessToken is a valid object */
     if (typeof this._tokens.accessToken !== 'object' || this._tokens.accessToken === null) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'AccessToken object container not a valid object.',
+      );
       return false;
     }
 
     /** Assert access token token field is a string */
     if (!this._tokens.accessToken.token?.length) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'AccessToken object container does not contain a valid token.',
+      );
       return false;
     }
 
+    /** Get validity with/without threshold */
+    const isValidWithoutThreshold = (this._tokens.accessToken.expiresAt || 0) > Date.now();
+    const isValidWithThreshold = (
+      (this._tokens.accessToken.expiresAt || 0)
+      + (this.requestsSettings.accessTokenValidityThreshold || 0)
+    ) > Date.now();
+
+    if (!isValidWithoutThreshold) {
+      this.useLogger(
+        this.authLogger,
+        'warn',
+        'An AccessToken has been found, but its expired.',
+      );
+    }
+
+    if (isValidWithoutThreshold && !isValidWithThreshold) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'An AccessToken has been found, but could be expired. Limit threshold has passed.',
+      );
+    }
+
     /** Use token validity threshold to assert token could be used */
-    return (this._tokens.accessToken.expiresAt + Client.accessTokenValidityThreshold) > Date.now();
+    return isValidWithThreshold && isValidWithoutThreshold;
   }
 
 
   private get hasValidRefreshToken(): boolean {
-    return typeof this._tokens.refreshToken === 'string' && !!this._tokens.refreshToken.length;
+    /** If requests won't use access token, return always true */
+    if (!this.requestsSettings.useRefreshToken) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'Client is not using RefreshToken validation.',
+      );
+      return true;
+    }
+
+    /** Assert accessToken is a valid object */
+    if (typeof this._tokens.refreshToken !== 'object' || this._tokens.refreshToken === null) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'RefreshToken object container not a valid object.',
+      );
+      return false;
+    }
+
+    /** Assert access token token field is a string */
+    if (!this._tokens.refreshToken.token?.length) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'RefreshToken object container does not contain a valid token.',
+      );
+      return false;
+    }
+
+    /** Get validity with/without threshold */
+    const isValidWithoutThreshold = (this._tokens.refreshToken.expiresAt || 0) > Date.now();
+    const isValidWithThreshold = (
+      (this._tokens.refreshToken.expiresAt || 0)
+      + (this.requestsSettings.refreshTokenValidityThreshold || 0)
+    ) > Date.now();
+
+    if (!isValidWithoutThreshold) {
+      this.useLogger(
+        this.authLogger,
+        'warn',
+        'A RefreshToken has been found, but its definitely expired.',
+      );
+    }
+
+    if (isValidWithoutThreshold && !isValidWithThreshold) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'A RefreshToken has been found, but could be expired. Limit threshold has passed.',
+      );
+    }
+
+    /** Use token validity threshold to assert token could be used */
+    return isValidWithThreshold && isValidWithoutThreshold;
   }
 
 
   /* --------
-   * Public Methods
+   * Private Methods
    * -------- */
-  public setState(newState: Partial<Omit<ClientState, 'hasAuth'>>): void {
+  private setState(newState: Partial<Omit<ClientState<UserData>, 'hasAuth'>>): void {
     /** Set the new state */
     this._state = {
       ...this._state,
-      ...newState
+      ...newState,
     };
     /** Dispatch state change */
     this.dispatchClientStateChange();
-  }
-
-
-  /* --------
-   * Auth Requests
-   * -------- */
-  public async loginWithEmailAndPassword(email: string, password: string): Promise<APIResponse.Auth.User> {
-    /** Get user Data */
-    const loginData = await this.request<APIResponse.Auth.Login>({
-      url             : '/auth/login',
-      method          : 'POST',
-      data            : {
-        email,
-        password
-      },
-      withAccessToken : false,
-      withRefreshToken: false
-    });
-
-    /** Save Tokens */
-    await this.saveAccessToken(loginData.accessToken);
-    await this.saveRefreshToken(loginData.refreshToken);
-
-    /** Save received user data */
-    await this.saveUserData(loginData.userData);
-
-    return loginData.userData;
-  }
-
-
-  public async createUserWithEmailAndPassword(
-    signupData: Dto.User.Create
-  ): Promise<APIResponse.Auth.User> {
-    /** Get Data */
-    const loginData = await this.request<APIResponse.Auth.Login>({
-      url             : '/auth/signup',
-      method          : 'POST',
-      data            : signupData,
-      withAccessToken : false,
-      withRefreshToken: false
-    });
-
-    /** Save Tokens */
-    await this.saveAccessToken(loginData.accessToken);
-    await this.saveRefreshToken(loginData.refreshToken);
-
-    /** Save user data */
-    await this.saveUserData(loginData.userData);
-
-    return loginData.userData;
-  }
-
-
-  public async logout(): Promise<void> {
-    /** Logout from the API */
-    await this.request<void>({
-      url             : '/auth/logout',
-      method          : 'POST',
-      withRefreshToken: true,
-      withAccessToken : true
-    });
-
-    /** Remove client auth */
-    await this.resetClientAuth();
   }
 
 
@@ -452,7 +594,7 @@ class Client {
     return this.willRequest<T>({
       ...options,
       url,
-      method: 'GET'
+      method: 'GET',
     });
   }
 
@@ -461,7 +603,7 @@ class Client {
     return this.request<T>({
       ...options,
       url,
-      method: 'GET'
+      method: 'GET',
     });
   }
 
@@ -470,7 +612,7 @@ class Client {
     return this.willRequest<T>({
       ...options,
       url,
-      method: 'POST'
+      method: 'POST',
     });
   }
 
@@ -479,7 +621,7 @@ class Client {
     return this.request<T>({
       ...options,
       url,
-      method: 'POST'
+      method: 'POST',
     });
   }
 
@@ -488,7 +630,7 @@ class Client {
     return this.willRequest<T>({
       ...options,
       url,
-      method: 'PUT'
+      method: 'PUT',
     });
   }
 
@@ -497,7 +639,7 @@ class Client {
     return this.request<T>({
       ...options,
       url,
-      method: 'PUT'
+      method: 'PUT',
     });
   }
 
@@ -506,7 +648,7 @@ class Client {
     return this.willRequest<T>({
       ...options,
       url,
-      method: 'PATCH'
+      method: 'PATCH',
     });
   }
 
@@ -515,7 +657,7 @@ class Client {
     return this.request<T>({
       ...options,
       url,
-      method: 'PATCH'
+      method: 'PATCH',
     });
   }
 
@@ -524,7 +666,7 @@ class Client {
     return this.willRequest<T>({
       ...options,
       url,
-      method: 'DELETE'
+      method: 'DELETE',
     });
   }
 
@@ -533,13 +675,13 @@ class Client {
     return this.request<T>({
       ...options,
       url,
-      method: 'DELETE'
+      method: 'DELETE',
     });
   }
 
 
   public async willRequest<T = GenericAPIResponse>(
-    config: ClientRequest
+    config: ClientRequest,
   ): Promise<ClientWillResponse<T>> {
     /** Make the request */
     try {
@@ -554,7 +696,7 @@ class Client {
 
   public async request<T = GenericAPIResponse>(config: ClientRequest): Promise<T> {
     /** Set the is Performing Request */
-    if (Client.changeClientStateOnRequest) {
+    if (this.requestsSettings.switchClientRequestState) {
       this.setState({ isPerformingRequest: true });
     }
 
@@ -563,14 +705,13 @@ class Client {
       url: _url,
       method,
       data,
-      params,
-      parseRequestError = true,
+      params = {},
       withAccessToken = true,
-      withRefreshToken = false
+      withRefreshToken = false,
     } = config;
 
     /** Prepare the Request URL */
-    const url = Client.prepareURL(_url);
+    const url = this.prepareURL(_url);
 
     /** Make the Request */
     try {
@@ -581,36 +722,66 @@ class Client {
       const headers: Record<string, string> = {};
 
       /** Append the AccessToken, if something goes wrong, getAccessToken will throw its error */
-      if (withAccessToken) {
-        headers[Client.accessTokenHeaderName] = await this.getAccessToken();
+      if (withAccessToken && this.requestsSettings.useAccessToken) {
+        /** Get the AccessToken */
+        const accessToken = await this.getAccessToken();
+        /** Set the Token into the Request */
+        if (this.requestsSettings.accessTokenPosition === 'header') {
+          this.useLogger(
+            this.requestLogger,
+            'debug',
+            'Setting AccessToken into headers',
+          );
+          headers[this.requestsSettings.accessTokenField] = accessToken;
+        }
+        else if (this.requestsSettings.accessTokenPosition === 'query') {
+          this.useLogger(
+            this.requestLogger,
+            'debug',
+            'Setting AccessToken into query parameters',
+          );
+          params[this.requestsSettings.accessTokenField] = accessToken;
+        }
       }
 
       /** Append RefreshToken, If something goes wrong, getRefreshToken will throw its error */
-      if (withRefreshToken) {
-        headers[Client.refreshTokenHeaderName] = await this.getRefreshToken();
+      if (withRefreshToken && this.requestsSettings.useRefreshToken) {
+        /** Get the AccessToken */
+        const refreshToken = await this.getRefreshToken();
+        /** Set the Token into the Request */
+        if (this.requestsSettings.refreshTokenPosition === 'header') {
+          headers[this.requestsSettings.refreshTokenField] = refreshToken;
+        }
+        else if (this.requestsSettings.refreshTokenPosition === 'query') {
+          params[this.requestsSettings.refreshTokenField] = refreshToken;
+        }
       }
 
-      Client.debug(
+      this.useLogger(
+        this.requestLogger,
+        'debug',
         `Performing a '${config.method}' Request to '${config.url}'`,
-        {
-          params,
-          data
-        }
+        { params, data },
       );
 
       /** Make the Request */
-      const response = await Client.client({
+      const response = await this.client({
         url,
         method,
         headers,
         params,
-        data
+        data,
       }) as AxiosResponse<T>;
 
-      Client.debug(`Response received from '${config.url}'`, { response });
+      this.useLogger(
+        this.requestLogger,
+        'debug',
+        `Response received from '${config.url}'`,
+        { response },
+      );
 
       /** Remove loading state */
-      if (Client.changeClientStateOnRequest) {
+      if (this.requestsSettings.switchClientRequestState) {
         this.setState({ isPerformingRequest: false });
       }
 
@@ -618,41 +789,62 @@ class Client {
       return response.data;
     }
     catch (e) {
-      Client.debug(
-        `An undefined error has been received from '${config.url}'`,
-        { e }
+      this.useLogger(
+        this.requestLogger,
+        'error',
+        `An error has been received from '${config.url}'`,
+        { e },
       );
 
       /** Remove loading state */
-      if (Client.changeClientStateOnRequest) {
+      if (this.requestsSettings.switchClientRequestState) {
         this.setState({ isPerformingRequest: false });
       }
 
       /** Throw the Error */
-      throw parseRequestError
-        ? Client.parseRequestError(e)
-        : e instanceof Error ? e : new Error('Undefined request error');
+      throw this.parseRequestError(e);
     }
   }
 
 
+  /* --------
+   * Token Management
+   * -------- */
   private async getAccessToken(): Promise<string> {
-    Client.debug('Retrieving the AccessToken');
+    if (!this.requestsSettings.useAccessToken) {
+      return '';
+    }
+
+    this.useLogger(
+      this.authLogger,
+      'debug',
+      'Retrieving the AccessToken',
+    );
 
     /** Check if current access token could be used */
     if (this.hasValidAccessToken) {
-      return this._tokens.accessToken!.token;
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'AccessToken loaded from Local Client object',
+      );
+      return this._tokens.accessToken!.token!;
     }
 
     /**
      * If the Access Token could not be used
      * must refresh it using the current refresh token
      */
-    const [ refreshAccessTokenError, accessToken ] = await this.willRequest<APIResponse.Auth.AccessGrant>({
+    this.useLogger(
+      this.authLogger,
+      'debug',
+      'Try to grant a new AccessToken',
+    );
+    const [ refreshAccessTokenError, accessToken ] = await this.willRequest<ClientToken>({
       method          : 'GET',
       url             : '/auth/grant-access',
       withRefreshToken: true,
-      withAccessToken : false
+      withAccessToken : false,
     });
 
     /**
@@ -660,7 +852,13 @@ class Client {
      * must invalide the Auth, if is set into Client Class
      */
     if (refreshAccessTokenError) {
-      if (Client.accessTokenErrorWillInvalidate) {
+      this.useLogger(
+        this.authLogger,
+        'error',
+        'An error occurred loading AccessToken',
+        { refreshAccessTokenError },
+      );
+      if (this.requestsSettings.accessTokenRefreshErrorWillInvalidateAuth) {
         await this.resetClientAuth();
       }
 
@@ -671,7 +869,7 @@ class Client {
     await this.saveAccessToken(accessToken);
 
     /** Return the newly regenerated token */
-    return accessToken.token;
+    return accessToken?.token || '';
   }
 
 
@@ -679,33 +877,58 @@ class Client {
    * Tokens Management
    * -------- */
   private async getRefreshToken(): Promise<string> {
-    Client.debug('Retrieving the RefreshToken');
+    if (!this.requestsSettings.useRefreshToken) {
+      return '';
+    }
 
-    /** Load Local Refresh Token */
-    let { refreshToken } = this._tokens;
+    this.useLogger(
+      this.authLogger,
+      'debug',
+      'Retrieving the RefreshToken',
+    );
+
+    /** Check if current access token could be used */
+    if (this.hasValidRefreshToken) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'RefreshToken loaded from Local Client object.',
+      );
+      return this._tokens.refreshToken!.token!;
+    }
 
     /** If token does not exists, try loading from localdb */
-    if (!refreshToken) {
-      Client.debug('Try to get local refresh token');
+    if (this.db && this.localStorageSettings.storeRefreshTokenIn) {
+      this.useLogger(
+        this.authLogger,
+        'debug',
+        'Loading RefreshToken from Local Storage',
+      );
       const [ loadDbError, localRefreshToken ] = await will(
-        Client.localDB.getItem<string>(Client.refreshTokenDbField)
+        this.db.getItem(this.localStorageSettings.storeRefreshTokenIn),
       );
 
       if (loadDbError) {
         throw loadDbError;
       }
 
-      Client.debug(localRefreshToken ? 'Local Refresh Token found' : 'No local Refresh Token found');
-      refreshToken = localRefreshToken ?? undefined;
-      this._tokens.refreshToken = localRefreshToken ?? undefined;
+      this.useLogger(
+        this.authLogger,
+        localRefreshToken ? 'debug' : 'warn',
+        localRefreshToken ? 'Local Refresh Token found' : 'No local Refresh Token found',
+      );
+
+      this._tokens.refreshToken = (localRefreshToken ?? undefined) as ClientToken;
+
+      /** Assert RefreshToken field validity */
+      if (!this.hasValidRefreshToken) {
+        throw new Error('Invalid Refresh Token');
+      }
+
+      return this._tokens.refreshToken!.token!;
     }
 
-    /** Assert RefreshToken field validity */
-    if (typeof refreshToken !== 'string' || !refreshToken.length) {
-      throw new Error('Invalid Refresh Token');
-    }
-
-    return refreshToken;
+    return '';
   }
 
 
@@ -714,19 +937,28 @@ class Client {
    * @param accessToken
    * @private
    */
-  private async saveAccessToken(accessToken: APIResponse.Auth.AccessGrant): Promise<void> {
-    Client.debug('Saving a new Access Token');
-
-    const [ saveError ] = await will(
-      Client.localDB.setItem<APIResponse.Auth.AccessGrant>(Client.accessTokenDbField, accessToken)
+  private async saveAccessToken(accessToken: ClientToken): Promise<void> {
+    this.useLogger(
+      this.authLogger,
+      'debug',
+      'Saving a new Access Token',
     );
 
-    if (saveError && process.env.NODE_ENV === 'development') {
-      global.console.error(
-        'An error occurred while saving the accessToken into the local db'
+    if (this.db && this.localStorageSettings.storeAccessTokenIn) {
+      const [ saveError ] = await will(
+        this.db.setItem(this.localStorageSettings.storeAccessTokenIn, accessToken),
       );
 
-      throw saveError;
+      if (saveError) {
+        this.useLogger(
+          this.authLogger,
+          'error',
+          'An error occurred while saving AccessToken into LocalStorage',
+          { saveError },
+        );
+
+        throw saveError;
+      }
     }
 
     this._tokens.accessToken = accessToken;
@@ -738,23 +970,33 @@ class Client {
    * @param refreshToken
    * @private
    */
-  private async saveRefreshToken(refreshToken: string): Promise<void> {
-    Client.debug('Saving a new Refresh Token');
-
-    const [ saveError ] = await will(
-      Client.localDB.setItem<string>(Client.refreshTokenDbField, refreshToken)
+  private async saveRefreshToken(refreshToken: ClientToken): Promise<void> {
+    this.useLogger(
+      this.authLogger,
+      'debug',
+      'Saving a new Refresh Token',
     );
 
-    if (saveError && process.env.NODE_ENV === 'development') {
-      global.console.error(
-        'An error occurred while saving the refreshToken into the local db'
+    if (this.db && this.localStorageSettings.storeRefreshTokenIn) {
+      const [ saveError ] = await will(
+        this.db.setItem(this.localStorageSettings.storeRefreshTokenIn, refreshToken),
       );
 
-      throw saveError;
+      if (saveError) {
+        this.useLogger(
+          this.authLogger,
+          'error',
+          'An error occurred while saving RefreshToken into LocalStorage',
+          { saveError },
+        );
+
+        throw saveError;
+      }
     }
 
     this._tokens.refreshToken = refreshToken;
   }
 }
+
 
 export default Client;

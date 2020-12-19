@@ -39,9 +39,6 @@
     "lint": "eslint .",
     "prettier": "prettier --config .prettierrc --write \"build/**/*{.js,.ts,.css}\""
   },
-  "peerDependencies": {
-    "react": "^17.0.1"
-  },
   "devDependencies": {
     "@commitlint/cli": "^11.0.0",
     "@commitlint/config-conventional": "^11.0.0",
@@ -75,6 +72,7 @@
   "dependencies": {
     "axios": "^0.21.0",
     "localforage": "^1.9.0",
+    "logdown": "^3.3.1",
     "tiny-invariant": "^1.1.0"
   }
 }
