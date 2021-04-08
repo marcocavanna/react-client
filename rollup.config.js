@@ -8,14 +8,14 @@ import pkg from './package.json';
 export default {
 
   input: [
-    'src/index.ts'
+    'src/index.ts',
   ],
 
   external: [
     ...Object.keys(pkg.peerDependencies),
     ...Object.keys(pkg.peerDependencies).map(dep => new RegExp(`^${dep}\/.+$`)),
-    ...Object.keys(pkg.dependencies || {}),
-    ...Object.keys(pkg.dependencies || {}).map(dep => new RegExp(`^${dep}\/.+$`))
+    ...Object.keys(pkg.dependencies),
+    ...Object.keys(pkg.dependencies).map(dep => new RegExp(`^${dep}\/.+$`)),
   ],
 
   output: [
@@ -24,20 +24,20 @@ export default {
       dir            : 'build/es',
       format         : 'cjs',
       sourcemap      : true,
-      preserveModules: true
-    }
+      preserveModules: true,
+    },
   ],
 
 
   plugins: [
     peerDepsExternal({
       deps    : true,
-      peerDeps: true
+      peerDeps: true,
     }),
     typescript({
-      useTsconfigDeclarationDir: true
+      useTsconfigDeclarationDir: true,
     }),
-    commonjs()
-  ]
+    commonjs(),
+  ],
 
 };

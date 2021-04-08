@@ -17,7 +17,7 @@ export type ConsumerProps<Context> = {
 
 
 export type BuiltContext<Context> = {
-  hook: () => Context,
+  hook: () => Exclude<Context, null>,
   Provider: React.Provider<Context>,
   Consumer: React.Consumer<Context>
 };
@@ -33,16 +33,16 @@ export function contextBuilder<Context>(
   const BaseContext = React.createContext<Context | undefined>(initialContext);
 
   /** Init the Hook Function */
-  function useContextHook(): Context {
+  function useContextHook(): Exclude<Context, null> {
     /** Get the value of the context */
     const ctxValue = React.useContext(BaseContext);
     /** Assert value exists */
     invariant(
-      ctxValue !== undefined,
+      ctxValue !== undefined && ctxValue !== null,
       'useContext() hook must be invoked inside its right Context'
     );
     /** Return the Context */
-    return ctxValue;
+    return ctxValue as any;
   }
 
   /** Return context tools */

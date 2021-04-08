@@ -1,6 +1,6 @@
 /**
  * Define how TypeScript will compile Code.
- * Use https://www.typescriptlang.org/v2/tsconfig to refer to each props
+ * Use https://www.typescriptlang.org/tsconfig to refer to each props
  */
 {
   "compilerOptions": {
@@ -9,7 +9,7 @@
 
     // If specified, .js (as well as .d.ts, .js.map, etc.) files will be emitted into this directory.
     // The directory structure of the original source files is preserved
-    // https://www.typescriptlang.org/v2/tsconfig#outDir
+    // https://www.typescriptlang.org/tsconfig#outDir
     "outDir": "./dist/lib/",
 
     // TypeScript also includes APIs for newer JS features matching the target you specify
@@ -18,7 +18,7 @@
     //        - array.find, Promise, Proxy, Symbol, Map, Set, Reflect, etc.
     // ES2016: Additional APIs available in ES2016
     //        - array.include, etc.
-    // https://www.typescriptlang.org/v2/tsconfig#lib
+    // https://www.typescriptlang.org/tsconfig#lib
     "lib": [
       "dom",
       "ES5",
@@ -37,7 +37,7 @@
 
     // Controls how JSX constructs are emitted in JavaScript files
     // "react": Emit .js files with JSX changed to the equivalent React.createElement calls
-    // https://www.typescriptlang.org/v2/tsconfig#jsx
+    // https://www.typescriptlang.org/tsconfig#jsx
     "jsx": "react",
 
     // Enables the generation of sourcemap files.
@@ -53,12 +53,12 @@
     // in stronger guarantees of program correctness.
     // Turning this on is equivalent to enabling all of the strict mode family options.
     // You can then turn off individual strict mode family checks as needed.
-    // https://www.typescriptlang.org/v2/tsconfig#strict
+    // https://www.typescriptlang.org/tsconfig#strict
     "strict": true,
 
     // In some cases where no type annotations are present, TypeScript will fall back
     // to a type of any for a variable when it cannot infer the type.
-    // https://www.typescriptlang.org/v2/tsconfig#noImplicitAny
+    // https://www.typescriptlang.org/tsconfig#noImplicitAny
     "noImplicitAny": true,
 
 
@@ -68,17 +68,17 @@
     // import React from "react";
     // instead of
     // import * as React from "react";
-    // https://www.typescriptlang.org/v2/tsconfig#allowSyntheticDefaultImports
+    // https://www.typescriptlang.org/tsconfig#allowSyntheticDefaultImports
     "allowSyntheticDefaultImports": true,
 
     // Enables emit interoperability between CommonJS and ES Modules
     // via creation of namespace objects for all imports
-    // https://www.typescriptlang.org/v2/tsconfig#esModuleInterop
+    // https://www.typescriptlang.org/tsconfig#esModuleInterop
     "esModuleInterop": true,
 
     // Specify the module resolution strategy: ‘node’ (Node.js)
     // or ‘classic’ (used in TypeScript before the release of 1.6)
-    // https://www.typescriptlang.org/v2/tsconfig#moduleResolution
+    // https://www.typescriptlang.org/tsconfig#moduleResolution
     // https://www.typescriptlang.org/v2/docs/handbook/module-resolution.html
     "moduleResolution": "node",
 
@@ -86,21 +86,21 @@
     /** Linter Checks */
 
     // TypeScript will check all code paths in a function to ensure they return a value
-    // https://www.typescriptlang.org/v2/tsconfig#noImplicitReturns
+    // https://www.typescriptlang.org/tsconfig#noImplicitReturns
     "noImplicitReturns": true,
 
     // Report errors on unused local variables.
-    // https://www.typescriptlang.org/v2/tsconfig#noUnusedLocals
+    // https://www.typescriptlang.org/tsconfig#noUnusedLocals
     "noUnusedLocals": true,
 
     // TypeScript will issue an error if a program tries
     // to include a file by a casing different from the casing on disk
-    // https://www.typescriptlang.org/v2/tsconfig#forceConsistentCasingInFileNames
+    // https://www.typescriptlang.org/tsconfig#forceConsistentCasingInFileNames
     "forceConsistentCasingInFileNames": true,
 
     // Allows importing components with a ‘.json’ extension,
     // which is a common practice in node projects
-    // https://www.typescriptlang.org/v2/tsconfig#resolveJsonModule
+    // https://www.typescriptlang.org/tsconfig#resolveJsonModule
     "resolveJsonModule": true,
 
     // Skip type checking of declaration files.
@@ -109,21 +109,44 @@
     // Rather than doing a full check of all d.ts files,
     // TypeScript will type check the code you
     // specifically refer to in your app’s source code.
-    // https://www.typescriptlang.org/v2/tsconfig#skipLibCheck
+    // https://www.typescriptlang.org/tsconfig#skipLibCheck
     "skipLibCheck": true,
 
+    // For certain downleveling operations,
+    // TypeScript uses some helper code for operations like extending class,
+    // spreading arrays or objects, and async operations.
+    // By default, these helpers are inserted into files which use them.
+    // This can result in code duplication
+    // if the same helper is used in many different modules.
+    // https://www.typescriptlang.org/tsconfig#importHelpers
+    "importHelpers": true,
+
+    // Downleveling is TypeScript’s term for transpiling
+    // to an older version of JavaScript.
+    // This flag is to enable support for a more accurate implementation
+    // of how modern JavaScript iterates through new concepts in older JavaScript runtimes.
+    // https://www.typescriptlang.org/tsconfig#downlevelIteration
+    "downlevelIteration": true,
+
+    // By default all visible ”@types” packages are included in your compilation.
+    // Packages in node_modules/@types of any enclosing folder are considered visible.
+    // For example, that means packages within ./node_modules/@types/,
+    // ../node_modules/@types/, ../../node_modules/@types/, and so on.
+    // If typeRoots is specified, only packages under typeRoots will be included
+    // https://www.typescriptlang.org/tsconfig#typeRoots
     "typeRoots": [
       "./node_modules/@types",
-      "./src/types"
-    ],
-
-    // Set the Source Root
-    "rootDir": "./src"
+      "./types"
+    ]
 
   },
 
   "include": [
     "./src/**/*",
-    "./types"
+    "./typings"
+  ],
+
+  "exclude": [
+    "./templates/**/*"
   ]
 }
