@@ -40,39 +40,47 @@ type ClientLoggers = 'auth' | 'error-parser' | 'event' | 'init' | 'request' | 's
 /* --------
  * Client Configuration Object
  * -------- */
-export interface ClientConfiguration<UserData> {
+export interface ClientConfiguration<UserData, Storage extends Record<string, any>> {
   /** Default API Request */
   api: {
     /** An API Config used to create new User */
-    createUserWithEmailAndPassword?: ClientRequest;
+    createUserWithEmailAndPassword?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to load UserData */
-    getUserData: ClientRequest;
+    getUserData: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to retrieve a new AccessToken */
-    grantAccessToken?: ClientRequest;
+    grantAccessToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to login with email and password */
-    loginWithEmailAndPassword?: ClientRequest;
+    loginWithEmailAndPassword?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to perform logout */
-    logout?: ClientRequest;
+    logout?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
   },
 
   /** Configure Auth */
   auth?: {
     /** Set the AccessToken validity threshold */
     accessTokenValidityThreshold?: number;
+    /** Place accessToken into Authorization Header as Bearer Token */
+    accessTokenAsBearerToken?: boolean;
     /** The header name into place the accessToken string */
     accessTokenHeaderName?: string;
     /** The field into save accessToken to use in request */
     accessTokenStorageField?: string;
     /** Extract the AccessToken from auth Response */
-    extractAccessTokenFromAuthResponse?: (authResponse: any) => AccessToken | undefined;
+    extractAccessTokenFromAuthResponse?: (
+      authResponse: any,
+      client: Client<UserData, Storage>
+    ) => AccessToken | undefined;
     /** Extract the RefreshToken from auth Response */
-    extractRefreshTokenFromAuthResponse?: (authResponse: any) => RefreshToken | undefined;
+    extractRefreshTokenFromAuthResponse?: (
+      authResponse: any,
+      client: Client<UserData, Storage>
+    ) => RefreshToken | undefined;
     /** Extract the UserData from auth Response */
-    extractUserDataFromAuthResponse?: (authResponse: any) => UserData | undefined;
+    extractUserDataFromAuthResponse?: (authResponse: any, client: Client<UserData, Storage>) => UserData | undefined;
     /** A checker to get if AccessToken is Valid */
-    hasValidAccessToken?: (accessToken: AccessToken | undefined, client: Client<UserData>) => boolean;
+    hasValidAccessToken?: (accessToken: AccessToken | undefined, client: Client<UserData, Storage>) => boolean;
     /** A checker to get if RefreshToken is Valid */
-    hasValidRefreshToken?: (refreshToken: RefreshToken | undefined, client: Client<UserData>) => boolean;
+    hasValidRefreshToken?: (refreshToken: RefreshToken | undefined, client: Client<UserData, Storage>) => boolean;
     /** Invalidate the Auth if an AccessToken error will occur */
     invalidateAfterAccessTokenError?: boolean;
     /** The header name into place the refreshToken string */
@@ -125,12 +133,18 @@ export interface ClientConfiguration<UserData> {
     timeout?: ProcessDependingField<number>;
   },
 
+  /** System Configuration */
+  system?: {
+    /** Replace the init function */
+    onInit?: ((client: Client<UserData, Storage>) => Promise<UserData | null>)
+  },
+
   /** WebSocket Option */
   websocket?: {
     /** A function to know if socket could exists or not */
     couldHaveSocket?: ((state: ClientState<UserData>) => boolean) | boolean;
     /** Get Socket Protocol */
-    getProtocol?: ((client: Client<UserData>) => string);
+    getProtocol?: ((client: Client<UserData, Storage>) => string);
     /** Set the base URL */
     domain: ProcessDependingField<string>;
     /** If a namespace must be appended to URL set this property */
@@ -146,7 +160,7 @@ export interface ClientConfiguration<UserData> {
 /* --------
  * Client Definition
  * -------- */
-export default class Client<UserData> {
+export default class Client<UserData, Storage extends {} = {}> {
 
 
   /* --------
@@ -157,11 +171,11 @@ export default class Client<UserData> {
    * -------- */
 
   /** Init a Client Container */
-  private static _instance: Client<any> | null = null;
+  private static _instance: Client<any, any> | null = null;
 
 
   /** Declare a function to get Client instance */
-  public static getInstance<UD>(config?: ClientConfiguration<UD>): Client<UD> {
+  public static getInstance<UD, S>(config?: ClientConfiguration<UD, S>): Client<UD, S> {
     /** If a Client instance doesn't exists, create a new one */
     if (!Client._instance) {
       invariant(config, 'Could not load a new Client without configuration.');
@@ -170,6 +184,12 @@ export default class Client<UserData> {
     /** Return the Singleton Instance of Client */
     return Client._instance;
   }
+
+
+  /* --------
+   * Internal Storage
+   * -------- */
+  public storage: Storage = {} as Storage;
 
 
   /* --------
@@ -983,7 +1003,7 @@ export default class Client<UserData> {
    * The Client could be instantiated only
    * using the getInstance static method
    * -------- */
-  private constructor(private readonly config: ClientConfiguration<UserData>) {
+  private constructor(private readonly config: ClientConfiguration<UserData, Storage>) {
 
     // ----
     // Initialize the Event Emitter
@@ -1076,10 +1096,21 @@ export default class Client<UserData> {
    */
   private async __init(): Promise<UserData | null> {
     try {
-      /** Get Fresh User Data */
-      const userData = await this.getUserData();
+      /** Initialize default userData object */
+      let userData: UserData | null = null;
+
+      /** Check if a custom function of init exists */
+      if (typeof this.config.system?.onInit === 'function') {
+        userData = await this.config.system.onInit(this);
+      }
+      /** Else, perform the default init function */
+      else {
+        /** Get Fresh User Data */
+        userData = await this.getUserData();
+      }
       /** Save response */
-      await this.saveUserData(userData);
+      await this.saveUserData(userData ?? undefined);
+
       /** Return to constructor */
       return userData;
     }
@@ -1341,7 +1372,7 @@ export default class Client<UserData> {
   private extractAccessTokenFromAuthResponse(authResponse: any): AccessToken | undefined {
     /** Get the AccessToken */
     const accessToken = typeof this.config.auth?.extractAccessTokenFromAuthResponse === 'function'
-      ? this.config.auth.extractAccessTokenFromAuthResponse(authResponse)
+      ? this.config.auth.extractAccessTokenFromAuthResponse(authResponse, this)
       : authResponse.accessToken as (AccessToken | undefined);
 
     /** Check AccessToken validity */
@@ -1361,7 +1392,7 @@ export default class Client<UserData> {
   private extractRefreshTokenFromAuthResponse(authResponse: any): RefreshToken | undefined {
     /** Get the RefreshToken */
     const refreshToken = typeof this.config.auth?.extractRefreshTokenFromAuthResponse === 'function'
-      ? this.config.auth.extractRefreshTokenFromAuthResponse(authResponse)
+      ? this.config.auth.extractRefreshTokenFromAuthResponse(authResponse, this)
       : authResponse.refreshToken as (RefreshToken | undefined);
 
     /** Check RefreshToken validity */
@@ -1380,7 +1411,7 @@ export default class Client<UserData> {
 
   private extractUserDataFromAuthResponse(authResponse: any): UserData | undefined {
     return typeof this.config.auth?.extractUserDataFromAuthResponse === 'function'
-      ? this.config.auth.extractUserDataFromAuthResponse(authResponse)
+      ? this.config.auth.extractUserDataFromAuthResponse(authResponse, this)
       : authResponse.userData as (UserData | undefined);
   }
 
@@ -1435,8 +1466,12 @@ export default class Client<UserData> {
     );
 
     /** Get the AuthResponse */
+    const loginWithEmailAndPasswordConfig = typeof this.config.api.loginWithEmailAndPassword === 'function'
+      ? this.config.api.loginWithEmailAndPassword(this)
+      : this.config.api.loginWithEmailAndPassword;
+
     const authResponse = await this.request<any>({
-      ...this.config.api.loginWithEmailAndPassword,
+      ...loginWithEmailAndPasswordConfig,
       data: { email, password }
     });
 
@@ -1462,8 +1497,12 @@ export default class Client<UserData> {
     );
 
     /** Get the AuthResponse */
+    const createUserWithEmailAndPasswordConfig = typeof this.config.api.createUserWithEmailAndPassword === 'function'
+      ? this.config.api.createUserWithEmailAndPassword(this)
+      : this.config.api.createUserWithEmailAndPassword;
+
     const authResponse = await this.request<any>({
-      ...this.config.api.createUserWithEmailAndPassword,
+      ...createUserWithEmailAndPasswordConfig,
       data: signupData
     });
 
@@ -1486,7 +1525,9 @@ export default class Client<UserData> {
   }
 
 
-  public async request<T = GenericAPIResponse>(config: ClientRequest): Promise<T> {
+  public async request<T = GenericAPIResponse>(
+    _config: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest)
+  ): Promise<T> {
     /** Check client exists */
     if (!this.client) {
       this.useLogger('request', 'warn', 'A request has been called, but client is not initialize. Check configuration');
@@ -1496,6 +1537,11 @@ export default class Client<UserData> {
     if (this.config.requests?.changeClientState) {
       this.setState({ isPerformingRequest: true });
     }
+
+    /** Get plain configuration object */
+    const config = typeof _config === 'function'
+      ? _config(this)
+      : _config;
 
     /** Deconstruct config applying default */
     const {
@@ -1512,6 +1558,7 @@ export default class Client<UserData> {
     };
 
     /** Get the field into place tokens */
+    const accessTokenAsBearerToken = getProcessDependingValue(this.config.auth?.accessTokenAsBearerToken, 'boolean');
     const accessTokenHeader = getProcessDependingValue(this.config.auth?.accessTokenHeaderName, 'string');
     const refreshTokenHeader = getProcessDependingValue(this.config.auth?.refreshTokenHeaderName, 'string');
 
@@ -1526,6 +1573,9 @@ export default class Client<UserData> {
       /** Append the AccessToken, if something goes wrong, getAccessToken will throw its error */
       if (accessTokenHeader && withAccessToken) {
         headers[accessTokenHeader] = await this.getAccessToken();
+      }
+      else if (accessTokenAsBearerToken && withAccessToken) {
+        headers.Authorization = `Bearer ${await this.getAccessToken()}`;
       }
 
       /** Append RefreshToken, If something goes wrong, getRefreshToken will throw its error */
@@ -1570,7 +1620,9 @@ export default class Client<UserData> {
   }
 
 
-  public async willRequest<T = GenericAPIResponse>(config: ClientRequest): Promise<ClientWillResponse<T>> {
+  public async willRequest<T = GenericAPIResponse>(
+    config: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest)
+  ): Promise<ClientWillResponse<T>> {
     try {
       const response = await this.request<T>(config);
       return [ null, response ];
