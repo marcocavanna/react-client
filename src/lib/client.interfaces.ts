@@ -1,16 +1,7 @@
+import type { AxiosRequestConfig } from 'axios';
+
+
 type AnyObject = { [key: string]: any };
-
-
-/* --------
- * Main API Server Responses
- * -------- */
-export type UserAuth<UserData> = {
-  accessToken: AccessToken;
-
-  refreshToken: RefreshToken;
-
-  userData: UserData;
-};
 
 export type AccessToken = {
   token: string;
@@ -28,15 +19,31 @@ export type RefreshToken = string;
 /* --------
  * Client State
  * -------- */
-export interface ClientState<UserData, State extends 'logged' | 'not-logged' = any> {
-  isLoaded: boolean;
-
+export type LoadingClientState = {
+  isLoaded: false;
   isPerformingRequest: boolean;
+  hasAuth: false;
+  userData: null;
+};
 
-  hasAuth: boolean;
+export type UnauthorizedClientState = {
+  isLoaded: true;
+  isPerformingRequest: boolean;
+  hasAuth: false;
+  userData: null;
+};
 
-  userData: State extends 'logged' ? UserData : null;
-}
+export type AuthorizedClientState<UserData> = {
+  isLoaded: true;
+  isPerformingRequest: boolean;
+  hasAuth: true;
+  userData: UserData;
+};
+
+export type ClientState<UserData> =
+  | LoadingClientState
+  | UnauthorizedClientState
+  | AuthorizedClientState<UserData>;
 
 export interface WebSocketState {
   /** Last websocket connection has an error */
@@ -105,12 +112,6 @@ export interface ClientRequestParams {
 
   /** Request Params */
   params?: {
-    $lean?: boolean,
-    $limit?: string | number,
-    $populate?: string,
-    $project?: string,
-    $skip?: string | number,
-    $sort?: string,
     [key: string]: any
   };
 
@@ -119,6 +120,9 @@ export interface ClientRequestParams {
 
   /** Choose if Request Error must be throw raw or parsed, default to true  */
   parseRequestError?: boolean;
+
+  /** Any other Axios Request Config */
+  axiosRequestConfig?: Omit<AxiosRequestConfig, 'method' | 'url'>;
 
   /**
    * TODO:
@@ -135,7 +139,7 @@ export interface ClientRequestConfig {
   method?: ClientRequestMethod;
 
   /** The request URL */
-  url: string;
+  url?: string;
 }
 
 export interface ClientRequestError {

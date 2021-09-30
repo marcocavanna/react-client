@@ -1,3 +1,5 @@
+export * from './useClientRequest';
+
 export * from './useClientState';
 
 export * from './useWebSocketEvent';

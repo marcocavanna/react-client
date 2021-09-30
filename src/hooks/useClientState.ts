@@ -13,7 +13,7 @@ import { ClientState } from '../lib/client.interfaces';
  * To make sure userData exists, a generic State type
  * could be set related to useClientState
  */
-export function useClientState<UserData, State extends 'logged' | 'not-logged'>(): ClientState<UserData, State> {
+export function useClientState<UserData>(): ClientState<UserData> {
   /** Get the client */
   const client = useClient();
 

@@ -5,7 +5,6 @@ export type { ClientConfiguration } from './lib/client';
 /* --------
  * Base Client Context Functions
  * -------- */
-
 export { useClient, ClientConsumer, ClientProvider } from './context/client.context';
 
 
@@ -27,8 +26,12 @@ export type {
   ClientRequestMethod,
   ClientRequestParams,
   ClientState,
+  ClientWillResponse,
   EventUnsubscribe,
-  WebSocketEvent
+  WebSocketEvent,
+  WebSocketState,
+  RefreshToken,
+  AccessToken
 } from './lib/client.interfaces';
 
 export type {

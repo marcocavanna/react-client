@@ -1,15 +1,14 @@
-import type { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import axios from 'axios';
 import { EventEmitter } from 'events';
+
+import axios from 'axios';
+import type { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 
 import localforage from 'localforage';
 
 import logdown from 'logdown';
 import invariant from 'tiny-invariant';
 
-import { will } from '../utils';
-
-import {
+import type {
   AccessToken,
   ClientRequest,
   ClientRequestError,
@@ -27,6 +26,7 @@ import {
 
 import { getProcessDependingValue, ProcessDependingField } from './utils/getProcessDependingValue';
 import { prepareURL } from './utils/prepareURL';
+import { will } from './utils/will';
 
 
 /* --------
@@ -49,6 +49,8 @@ export interface ClientConfiguration<UserData, Storage extends Record<string, an
     getUserData: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to retrieve a new AccessToken */
     grantAccessToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
+    /** An API Config used to retrieve a new RefreshToken */
+    grantRefreshToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to login with email and password */
     loginWithEmailAndPassword?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to perform logout */
@@ -227,7 +229,7 @@ export default class Client<UserData, Storage extends {} = {}> {
   private setState(newState: Partial<Omit<ClientState<UserData>, 'hasAuth'>>): void {
     /** Set the new state */
     this._state = {
-      ...this.state,
+      ...this._state,
       ...newState
     };
 
@@ -667,8 +669,8 @@ export default class Client<UserData, Storage extends {} = {}> {
         this.useLogger('error-parser', 'debug', 'Error is a valid Axios Error. Keeping original properties', response);
         return {
           statusCode: response.status,
-          error     : response.data?.error ?? this.genericRequestError.error,
-          message   : response.data?.message ?? this.genericRequestError.message,
+          error     : response.data?.title ?? this.genericRequestError.error,
+          message   : response.data?.detail ?? this.genericRequestError.message,
           method    : config.method?.toUpperCase() ?? this.genericRequestError.method,
           response  : response.data,
           stack,
@@ -1097,7 +1099,7 @@ export default class Client<UserData, Storage extends {} = {}> {
   private async __init(): Promise<UserData | null> {
     try {
       /** Initialize default userData object */
-      let userData: UserData | null = null;
+      let userData: UserData | null;
 
       /** Check if a custom function of init exists */
       if (typeof this.config.system?.onInit === 'function') {
@@ -1176,7 +1178,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     }
 
     /** Use token validity threshold to assert token could be used */
-    return (accessToken.expiresAt + (this.config.auth?.accessTokenValidityThreshold ?? 0)) > Date.now();
+    return (accessToken.expiresAt - (this.config.auth?.accessTokenValidityThreshold ?? 0)) > Date.now();
   }
 
 
@@ -1265,14 +1267,14 @@ export default class Client<UserData, Storage extends {} = {}> {
       const [ refreshAccessTokenError, accessToken ] = await this.willRequest<AccessToken>(this.config.api.grantAccessToken);
 
       /** Throw any error from request */
-      if (refreshAccessTokenError) {
+      if (refreshAccessTokenError || !this.hasValidAccessToken(accessToken)) {
         this.useLogger('auth', 'error', 'An error has been received from API when asking a new AccessToken');
         /** Check if must invalidate auth */
         if (this.config.auth?.invalidateAfterAccessTokenError) {
           await this.resetClientAuth();
         }
 
-        throw refreshAccessTokenError;
+        throw refreshAccessTokenError ?? new Error('Invalid Access Token received from API Server');
       }
 
       /** Save the new AccessToken */
@@ -1316,6 +1318,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * In order the RefreshToken will be load from:
    *  1. The local in memory storage
    *  2. The LocalStorage at configured key
+   *  3. A preconfigured request to an API Endpoint that could return a valid RefreshToken
    *
    * If none of the method above will load a valid and correct RefreshToken
    * an erro will be thrown.
@@ -1338,6 +1341,32 @@ export default class Client<UserData, Storage extends {} = {}> {
       this.useLogger('auth', 'debug', 'RefreshToken found from LocalStorage');
       this._tokens.refreshToken = loadedRefreshToken as string;
       return loadedRefreshToken as string;
+    }
+
+    /** If an API Request has been set, use it to get a new RefreshToken */
+    if (this.config.api?.grantRefreshToken) {
+      this.useLogger('auth', 'debug', 'Ask a new RefreshToken to API Server');
+
+      /** Make the Request */
+      const [ grantRefreshTokenError, refreshToken ] = await this.willRequest<RefreshToken>(
+        this.config.api.grantRefreshToken
+      );
+
+      /** Throw error from request */
+      if (grantRefreshTokenError || !this.hasValidRefreshToken(refreshToken)) {
+        this.useLogger('auth', 'error', 'An error has been received from API when asking a new RefreshToken');
+
+        /** Invalidate current auth */
+        await this.resetClientAuth();
+
+        throw grantRefreshTokenError;
+      }
+
+      /** Save the received refreshToken */
+      await this.saveRefreshToken(refreshToken);
+
+      /** Return the correct refreshToken */
+      return refreshToken;
     }
 
     /** Throw an error to abort any request */
@@ -1420,9 +1449,36 @@ export default class Client<UserData, Storage extends {} = {}> {
    * Public Getters
    * -------- */
   public get state(): ClientState<UserData> {
+
+    const {
+      isLoaded,
+      isPerformingRequest,
+      userData
+    } = this._state;
+
+    if (!isLoaded) {
+      return {
+        isLoaded: false,
+        isPerformingRequest,
+        hasAuth : false,
+        userData: null
+      };
+    }
+
+    if (userData && this.hasValidAccessToken()) {
+      return {
+        isLoaded: true,
+        isPerformingRequest,
+        hasAuth : true,
+        userData
+      };
+    }
+
     return {
-      ...this._state,
-      hasAuth: !!this._state.userData && this.hasValidAccessToken()
+      isLoaded: true,
+      isPerformingRequest,
+      hasAuth : false,
+      userData: null
     };
   }
 
@@ -1531,6 +1587,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** Check client exists */
     if (!this.client) {
       this.useLogger('request', 'warn', 'A request has been called, but client is not initialize. Check configuration');
+      throw new Error('Client has not been initialized');
     }
 
     /** Check if the Request must change the Client State */
@@ -1545,12 +1602,13 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** Deconstruct config applying default */
     const {
+      axiosRequestConfig,
       url: _url,
-      method,
+      method = 'GET',
       data,
       params,
-      parseRequestError,
-      withAccessToken,
+      parseRequestError = true,
+      withAccessToken = true,
       withRefreshToken
     } = {
       ...(this.config.requests?.defaults || {}),
@@ -1562,6 +1620,12 @@ export default class Client<UserData, Storage extends {} = {}> {
     const accessTokenHeader = getProcessDependingValue(this.config.auth?.accessTokenHeaderName, 'string');
     const refreshTokenHeader = getProcessDependingValue(this.config.auth?.refreshTokenHeaderName, 'string');
 
+    /** Check URL is a valid string */
+    if (!_url) {
+      this.useLogger('request', 'error', 'Invalid url parameter');
+      throw new Error('Invalid url');
+    }
+
     /** Prepare the Request URL */
     const url = prepareURL(_url);
 
@@ -1571,22 +1635,37 @@ export default class Client<UserData, Storage extends {} = {}> {
       const headers: Record<string, string> = {};
 
       /** Append the AccessToken, if something goes wrong, getAccessToken will throw its error */
-      if (accessTokenHeader && withAccessToken) {
-        headers[accessTokenHeader] = await this.getAccessToken();
-      }
-      else if (accessTokenAsBearerToken && withAccessToken) {
-        headers.Authorization = `Bearer ${await this.getAccessToken()}`;
+      if (withAccessToken) {
+        try {
+          const accessToken = await this.getAccessToken();
+
+          if (accessTokenHeader) {
+            headers[accessTokenHeader] = accessToken;
+          }
+          else if (accessTokenAsBearerToken) {
+            headers.Authorization = `Bearer ${accessToken}`;
+          }
+        }
+        catch {
+          throw new Error('Error Loading AccessToken');
+        }
       }
 
       /** Append RefreshToken, If something goes wrong, getRefreshToken will throw its error */
       if (refreshTokenHeader && withRefreshToken) {
-        headers[refreshTokenHeader] = await this.getRefreshToken();
+        try {
+          headers[refreshTokenHeader] = await this.getRefreshToken();
+        }
+        catch {
+          throw new Error('Error Loading RefreshToken');
+        }
       }
 
       this.useLogger('request', 'debug', `Performing a '${method}' Request to '${url}'`, { params, data, headers });
 
       /** Use Axios to make the Request */
       const response = await (this.client as AxiosInstance)({
+        ...axiosRequestConfig,
         url,
         method,
         headers,
