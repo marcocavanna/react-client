@@ -1253,9 +1253,15 @@ export default class Client<UserData, Storage extends {} = {}> {
       return this._deferredGetAccessToken.promise;
     }
 
+    /** Init a new deferred promises */
+    this.useLogger('auth', 'debug', 'Set the deferred access token object to avoid multiple requests');
+    this._deferredGetAccessToken = new Deferred<string>();
+
     /** Check if current access token is valid */
     if (this.hasValidAccessToken()) {
       this.useLogger('auth', 'debug', 'In Memory AccessToken is valid');
+      this._deferredGetAccessToken.resolve(this._tokens.accessToken!.token);
+      this._deferredGetAccessToken = undefined;
       return this._tokens.accessToken!.token;
     }
 
@@ -1266,14 +1272,13 @@ export default class Client<UserData, Storage extends {} = {}> {
     if (this.hasValidAccessToken(loadedAccessToken || undefined)) {
       this.useLogger('auth', 'debug', 'AccessToken found from LocalStorage');
       this._tokens.accessToken = loadedAccessToken!;
+      this._deferredGetAccessToken.resolve(loadedAccessToken!.token);
+      this._deferredGetAccessToken = undefined;
       return loadedAccessToken!.token;
     }
 
     /** If an API Request has been set, use it to get a new AccessToken */
     if (this.config.api?.grantAccessToken) {
-      this.useLogger('auth', 'debug', 'Set the deferred access token object to avoid multiple requests');
-      this._deferredGetAccessToken = new Deferred<string>();
-
       this.useLogger('auth', 'debug', 'Ask a new Token to API Server');
       /** Make the Request */
       const [ refreshAccessTokenError, accessToken ] = await this.willRequest<AccessToken>(this.config.api.grantAccessToken);
@@ -1315,6 +1320,10 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** Throw an error to abort any request */
     this.useLogger('auth', 'error', 'No valid method has been found to get an AccessToken');
+
+    this._deferredGetAccessToken.reject(new Error('Invalid AccessToken'));
+    this._deferredGetAccessToken = undefined;
+
     throw new Error('Invalid AccessToken');
   }
 
@@ -1364,9 +1373,15 @@ export default class Client<UserData, Storage extends {} = {}> {
       return this._deferredGetRefreshToken.promise;
     }
 
+    /** Init a new deferred promise */
+    this.useLogger('auth', 'debug', 'Set the deferred refresh token object to avoid multiple requests');
+    this._deferredGetRefreshToken = new Deferred<string>();
+
     /** If a valid RefreshToken already exists, use it */
     if (this.hasValidRefreshToken()) {
       this.useLogger('auth', 'debug', 'In Memory RefreshToken is valid');
+      this._deferredGetRefreshToken.resolve(this._tokens.refreshToken as string);
+      this._deferredGetRefreshToken = undefined;
       return this._tokens.refreshToken as string;
     }
 
@@ -1377,14 +1392,13 @@ export default class Client<UserData, Storage extends {} = {}> {
     if (this.hasValidRefreshToken(loadedRefreshToken || undefined)) {
       this.useLogger('auth', 'debug', 'RefreshToken found from LocalStorage');
       this._tokens.refreshToken = loadedRefreshToken as string;
+      this._deferredGetRefreshToken.resolve(loadedRefreshToken as string);
+      this._deferredGetRefreshToken = undefined;
       return loadedRefreshToken as string;
     }
 
     /** If an API Request has been set, use it to get a new RefreshToken */
     if (this.config.api?.grantRefreshToken) {
-      this.useLogger('auth', 'debug', 'Set the deferred refresh token object to avoid multiple requests');
-      this._deferredGetRefreshToken = new Deferred<string>();
-
       this.useLogger('auth', 'debug', 'Ask a new RefreshToken to API Server');
       /** Make the Request */
       const [ grantRefreshTokenError, refreshToken ] = await this.willRequest<RefreshToken>(
@@ -1426,6 +1440,10 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** Throw an error to abort any request */
     this.useLogger('auth', 'error', 'No valid method has been found to get a RefreshToken');
+
+    this._deferredGetRefreshToken.reject(new Error('Invalid AccessToken'));
+    this._deferredGetRefreshToken = undefined;
+
     throw new Error('Invalid RefreshToken');
   }
 
@@ -1691,29 +1709,19 @@ export default class Client<UserData, Storage extends {} = {}> {
 
       /** Append the AccessToken, if something goes wrong, getAccessToken will throw its error */
       if (withAccessToken) {
-        try {
-          const accessToken = await this.getAccessToken();
+        const accessToken = await (this._deferredGetAccessToken?.promise || this.getAccessToken());
 
-          if (accessTokenHeader) {
-            headers[accessTokenHeader] = accessToken;
-          }
-          else if (accessTokenAsBearerToken) {
-            headers.Authorization = `Bearer ${accessToken}`;
-          }
+        if (accessTokenHeader) {
+          headers[accessTokenHeader] = accessToken;
         }
-        catch {
-          throw new Error('Error Loading AccessToken');
+        else if (accessTokenAsBearerToken) {
+          headers.Authorization = `Bearer ${accessToken}`;
         }
       }
 
       /** Append RefreshToken, If something goes wrong, getRefreshToken will throw its error */
       if (refreshTokenHeader && withRefreshToken) {
-        try {
-          headers[refreshTokenHeader] = await this.getRefreshToken();
-        }
-        catch {
-          throw new Error('Error Loading RefreshToken');
-        }
+        headers[refreshTokenHeader] = await (this._deferredGetRefreshToken?.promise || this.getRefreshToken());
       }
 
       this.useLogger('request', 'debug', `Performing a '${method}' Request to '${url}'`, { params, data, headers });
