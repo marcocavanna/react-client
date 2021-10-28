@@ -23,6 +23,7 @@ import type {
   WebSocketEvent,
   WebSocketState
 } from './client.interfaces';
+import { Deferred } from './utils/Deferred';
 
 import { getProcessDependingValue, ProcessDependingField } from './utils/getProcessDependingValue';
 import { prepareURL } from './utils/prepareURL';
@@ -1241,8 +1242,16 @@ export default class Client<UserData, Storage extends {} = {}> {
    * an erro will be thrown.
    * @private
    */
+  private _deferredGetAccessToken: Deferred<string> | undefined = undefined;
+
   private async getAccessToken(): Promise<string> {
     this.useLogger('auth', 'debug', 'Load the AccessToken');
+
+    /** If a deferred promise has been already set, wait for its answer */
+    if (this._deferredGetAccessToken && this._deferredGetAccessToken.isPending) {
+      this.useLogger('auth', 'debug', 'A deferred request for AccessToken has been already set. Wait for it');
+      return this._deferredGetAccessToken.promise;
+    }
 
     /** Check if current access token is valid */
     if (this.hasValidAccessToken()) {
@@ -1262,6 +1271,9 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** If an API Request has been set, use it to get a new AccessToken */
     if (this.config.api?.grantAccessToken) {
+      this.useLogger('auth', 'debug', 'Set the deferred access token object to avoid multiple requests');
+      this._deferredGetAccessToken = new Deferred<string>();
+
       this.useLogger('auth', 'debug', 'Ask a new Token to API Server');
       /** Make the Request */
       const [ refreshAccessTokenError, accessToken ] = await this.willRequest<AccessToken>(this.config.api.grantAccessToken);
@@ -1269,16 +1281,33 @@ export default class Client<UserData, Storage extends {} = {}> {
       /** Throw any error from request */
       if (refreshAccessTokenError || !this.hasValidAccessToken(accessToken)) {
         this.useLogger('auth', 'error', 'An error has been received from API when asking a new AccessToken');
+
         /** Check if must invalidate auth */
         if (this.config.auth?.invalidateAfterAccessTokenError) {
           await this.resetClientAuth();
         }
 
-        throw refreshAccessTokenError ?? new Error('Invalid Access Token received from API Server');
+        /** Prebuild the error */
+        const refreshAccessTokenPrebuiltError = refreshAccessTokenError ?? new Error('Invalid Access Token received from API Server');
+
+        /** Reject the Promise */
+        if (this._deferredGetAccessToken.isPending) {
+          this._deferredGetAccessToken.reject(refreshAccessTokenPrebuiltError);
+          this._deferredGetAccessToken = undefined;
+        }
+
+        /** Throw the main error */
+        throw refreshAccessTokenPrebuiltError;
       }
 
       /** Save the new AccessToken */
       await this.saveAccessToken(accessToken);
+
+      /** Resolve the deferred promise */
+      if (this._deferredGetAccessToken.isPending) {
+        this._deferredGetAccessToken.resolve(accessToken.token);
+        this._deferredGetAccessToken = undefined;
+      }
 
       /** Return the token */
       return accessToken.token;
@@ -1324,8 +1353,16 @@ export default class Client<UserData, Storage extends {} = {}> {
    * an erro will be thrown.
    * @private
    */
+  private _deferredGetRefreshToken: Deferred<string> | undefined = undefined;
+
   private async getRefreshToken(): Promise<string> {
     this.useLogger('auth', 'debug', 'Load the RefreshToken');
+
+    /** If a deferred promise has been already set, wait for its answer */
+    if (this._deferredGetRefreshToken && this._deferredGetRefreshToken.isPending) {
+      this.useLogger('auth', 'debug', 'A deferred request for RefreshToken has been already set. Wait for it');
+      return this._deferredGetRefreshToken.promise;
+    }
 
     /** If a valid RefreshToken already exists, use it */
     if (this.hasValidRefreshToken()) {
@@ -1345,8 +1382,10 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** If an API Request has been set, use it to get a new RefreshToken */
     if (this.config.api?.grantRefreshToken) {
-      this.useLogger('auth', 'debug', 'Ask a new RefreshToken to API Server');
+      this.useLogger('auth', 'debug', 'Set the deferred refresh token object to avoid multiple requests');
+      this._deferredGetRefreshToken = new Deferred<string>();
 
+      this.useLogger('auth', 'debug', 'Ask a new RefreshToken to API Server');
       /** Make the Request */
       const [ grantRefreshTokenError, refreshToken ] = await this.willRequest<RefreshToken>(
         this.config.api.grantRefreshToken
@@ -1359,11 +1398,27 @@ export default class Client<UserData, Storage extends {} = {}> {
         /** Invalidate current auth */
         await this.resetClientAuth();
 
-        throw grantRefreshTokenError;
+        /** Prebuild the Error */
+        const grantRefreshTokenPrebuiltError = grantRefreshTokenError ?? new Error('Invalid Refresh Token received from API Server');
+
+        /** Reject the Promise */
+        if (this._deferredGetRefreshToken.isPending) {
+          this._deferredGetRefreshToken.reject(grantRefreshTokenPrebuiltError);
+          this._deferredGetRefreshToken = undefined;
+        }
+
+        /** Throw the main error */
+        throw grantRefreshTokenPrebuiltError;
       }
 
       /** Save the received refreshToken */
       await this.saveRefreshToken(refreshToken);
+
+      /** Resolve the deferred promise */
+      if (this._deferredGetRefreshToken.isPending) {
+        this._deferredGetRefreshToken.resolve(refreshToken);
+        this._deferredGetRefreshToken = undefined;
+      }
 
       /** Return the correct refreshToken */
       return refreshToken;
