@@ -45,7 +45,7 @@ export interface ClientConfiguration<UserData, Storage extends Record<string, an
   /** Default API Request */
   api: {
     /** An API Config used to create new User */
-    createUserWithEmailAndPassword?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
+    createUserWithUsernameAndPassword?: ClientRequest | ((client: Client<UserData, Storage>, signupData: any) => ClientRequest);
     /** An API Config used to load UserData */
     getUserData: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to retrieve a new AccessToken */
@@ -53,7 +53,9 @@ export interface ClientConfiguration<UserData, Storage extends Record<string, an
     /** An API Config used to retrieve a new RefreshToken */
     grantRefreshToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to login with email and password */
-    loginWithEmailAndPassword?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
+    loginWithUsernameAndPassword?: ClientRequest | (
+      (client: Client<UserData, Storage>, username: string, password: string) => ClientRequest
+    );
     /** An API Config used to perform logout */
     logout?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
   },
@@ -88,6 +90,8 @@ export interface ClientConfiguration<UserData, Storage extends Record<string, an
     invalidateAfterAccessTokenError?: boolean;
     /** The header name into place the refreshToken string */
     refreshTokenHeaderName?: string;
+    /** The query param name into place the refreshToken string */
+    refreshTokenQueryParamName?: string;
     /** The field into save refreshToken to use in request */
     refreshTokenStorageField?: string;
     /** The field into save userData */
@@ -1584,25 +1588,22 @@ export default class Client<UserData, Storage extends {} = {}> {
    * Perform a Login Request to API Server.
    * The API Server must return a complete AuthResponse,
    * composed by userData, accessToken and refreshToken field
-   * @param email
+   * @param username
    * @param password
    */
-  public async loginWithEmailAndPassword(email: string, password: string): Promise<UserData | undefined> {
+  public async loginWithUsernameAndPassword(username: string, password: string): Promise<UserData | undefined> {
     /** Check the request config exists for this API */
     invariant(
-      this.config.api.loginWithEmailAndPassword,
-      'Could not use loginWithEmailAndPassword without configuring the API in \'config.api.loginWithEmailAndPassword\' field'
+      this.config.api.loginWithUsernameAndPassword,
+      'Could not use loginWithEmailAndPassword without configuring the API in \'config.api.loginWithUsernameAndPassword\' field'
     );
 
     /** Get the AuthResponse */
-    const loginWithEmailAndPasswordConfig = typeof this.config.api.loginWithEmailAndPassword === 'function'
-      ? this.config.api.loginWithEmailAndPassword(this)
-      : this.config.api.loginWithEmailAndPassword;
+    const loginWithEmailAndPasswordConfig = typeof this.config.api.loginWithUsernameAndPassword === 'function'
+      ? this.config.api.loginWithUsernameAndPassword(this, username, password)
+      : this.config.api.loginWithUsernameAndPassword;
 
-    const authResponse = await this.request<any>({
-      ...loginWithEmailAndPasswordConfig,
-      data: { email, password }
-    });
+    const authResponse = await this.request<any>(loginWithEmailAndPasswordConfig);
 
     /** Get Auth Data */
     await this.saveAccessToken(this.extractAccessTokenFromAuthResponse(authResponse));
@@ -1618,22 +1619,19 @@ export default class Client<UserData, Storage extends {} = {}> {
    * composed by userData, accessToken and refreshToken field
    * @param signupData
    */
-  public async createUserWithEmailAndPassword<Dto>(signupData: Dto): Promise<UserData | undefined> {
+  public async createUserWithUsernameAndPassword<Dto>(signupData: Dto): Promise<UserData | undefined> {
     /** Check the request config exists for this API */
     invariant(
-      this.config.api.createUserWithEmailAndPassword,
-      'Could not use createUserWithEmailAndPassword without configuring the API in \'config.api.loginWithEmailAndPassword\' field'
+      this.config.api.createUserWithUsernameAndPassword,
+      'Could not use createUserWithEmailAndPassword without configuring the API in \'config.api.createUserWithUsernameAndPassword\' field'
     );
 
     /** Get the AuthResponse */
-    const createUserWithEmailAndPasswordConfig = typeof this.config.api.createUserWithEmailAndPassword === 'function'
-      ? this.config.api.createUserWithEmailAndPassword(this)
-      : this.config.api.createUserWithEmailAndPassword;
+    const createUserWithEmailAndPasswordConfig = typeof this.config.api.createUserWithUsernameAndPassword === 'function'
+      ? this.config.api.createUserWithUsernameAndPassword(this, signupData)
+      : this.config.api.createUserWithUsernameAndPassword;
 
-    const authResponse = await this.request<any>({
-      ...createUserWithEmailAndPasswordConfig,
-      data: signupData
-    });
+    const authResponse = await this.request<any>(createUserWithEmailAndPasswordConfig);
 
     /** Get Auth Data */
     await this.saveAccessToken(this.extractAccessTokenFromAuthResponse(authResponse));
@@ -1679,7 +1677,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       url: _url,
       method = 'GET',
       data,
-      params,
+      params = {},
       parseRequestError = true,
       withAccessToken = true,
       withRefreshToken
@@ -1692,6 +1690,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     const accessTokenAsBearerToken = getProcessDependingValue(this.config.auth?.accessTokenAsBearerToken, 'boolean');
     const accessTokenHeader = getProcessDependingValue(this.config.auth?.accessTokenHeaderName, 'string');
     const refreshTokenHeader = getProcessDependingValue(this.config.auth?.refreshTokenHeaderName, 'string');
+    const refreshTokenQueryParam = getProcessDependingValue(this.config.auth?.refreshTokenQueryParamName, 'string');
 
     /** Check URL is a valid string */
     if (!_url) {
@@ -1720,8 +1719,19 @@ export default class Client<UserData, Storage extends {} = {}> {
       }
 
       /** Append RefreshToken, If something goes wrong, getRefreshToken will throw its error */
-      if (refreshTokenHeader && withRefreshToken) {
-        headers[refreshTokenHeader] = await (this._deferredGetRefreshToken?.promise || this.getRefreshToken());
+      if (withRefreshToken && (refreshTokenHeader || refreshTokenQueryParam)) {
+        /** Await for refreshToken */
+        const refreshTokenValue = await (this._deferredGetRefreshToken?.promise || this.getRefreshToken());
+
+        /** Place into header */
+        if (refreshTokenHeader) {
+          headers[refreshTokenHeader] = refreshTokenValue;
+        }
+
+        /** Place into query string */
+        if (refreshTokenQueryParam) {
+          params[refreshTokenQueryParam] = refreshTokenValue;
+        }
       }
 
       this.useLogger('request', 'debug', `Performing a '${method}' Request to '${url}'`, { params, data, headers });
