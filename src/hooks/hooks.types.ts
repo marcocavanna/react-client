@@ -1,5 +1,5 @@
 import type {
-  ClientRequestConfig,
+  ClientRequest,
   ClientRequestError,
   ClientRequestMethod,
   WebSocketEvent
@@ -17,7 +17,7 @@ export interface UseClientRequestConfig {
   reloadDependencies?: any[];
 
   /** Additional Client Request Config */
-  request?: ClientRequestConfig;
+  request?: ClientRequest;
 
   /** The request URL */
   url: string;
