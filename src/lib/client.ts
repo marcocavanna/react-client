@@ -1585,6 +1585,18 @@ export default class Client<UserData, Storage extends {} = {}> {
 
 
   /**
+   * Reload the current UserData, using the getUserData API
+   * and store the result into current client state
+   */
+  public async reloadUserData(): Promise<void> {
+    /** Get user data */
+    const userData = await this.getUserData();
+    /** Store new user data */
+    await this.saveUserData(userData);
+  }
+
+
+  /**
    * Perform a Login Request to API Server.
    * The API Server must return a complete AuthResponse,
    * composed by userData, accessToken and refreshToken field
