@@ -1571,6 +1571,40 @@ export default class Client<UserData, Storage extends {} = {}> {
 
 
   /* --------
+   * Extra Client Configuration
+   * -------- */
+  private defaultRequestHeaders: Map<string, string> = new Map<string, string>();
+
+
+  /**
+   * Add a default header to every client request
+   * @param name
+   * @param value
+   */
+  public setDefaultHeader(name: string, value: string) {
+    this.defaultRequestHeaders.set(name, value);
+  }
+
+
+  /**
+   * Get a default header set using its name
+   * @param name
+   */
+  public getDefaultHeader(name: string): string | undefined {
+    return this.defaultRequestHeaders.get(name);
+  }
+
+
+  /**
+   * Remove a default header configuration
+   * @param name
+   */
+  public removeDefaultHeader(name: string) {
+    this.defaultRequestHeaders.delete(name);
+  }
+
+
+  /* --------
    * Public Methods
    * -------- */
 
@@ -1717,6 +1751,11 @@ export default class Client<UserData, Storage extends {} = {}> {
     try {
       /** Build Headers */
       const headers: Record<string, string> = {};
+
+      /** Add each default header from settings */
+      this.defaultRequestHeaders.forEach((value, key) => {
+        headers[key] = value;
+      });
 
       /** Append the AccessToken, if something goes wrong, getAccessToken will throw its error */
       if (withAccessToken) {
