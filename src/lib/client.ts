@@ -1329,7 +1329,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    */
   private _deferredGetAccessToken: Deferred<string> | undefined = undefined;
 
-  private async getAccessToken(): Promise<string> {
+  public async getAccessToken(): Promise<string> {
     this.useLogger('auth', 'debug', 'Load the AccessToken');
 
     /** If a deferred promise has been already set, wait for its answer */
