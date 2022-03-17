@@ -245,6 +245,34 @@ export default class Client<UserData, Storage extends {} = {}> {
 
 
   /**
+   * Edit the current tokens of the Client.
+   * This function will shallow update the tokens object
+   * so can be passed also a Partial of ClientTokens.
+   * @param newTokens
+   * @private
+   */
+  private setTokens(newTokens: Partial<ClientTokens>): void {
+    /** Produce an object with new tokens */
+    const nextTokens: ClientTokens = {
+      ...this._tokens,
+      ...newTokens
+    };
+
+    /** Assert at least one token has changed */
+    if (nextTokens.accessToken !== this._tokens.accessToken || nextTokens.refreshToken !== this._tokens.refreshToken) {
+      /** Dispatch the event */
+      this.useLogger('state', 'debug', 'A token update has been called', { nextTokens, tokens: this.tokens });
+
+      /** Set new tokens */
+      this._tokens.accessToken = nextTokens.accessToken;
+      this._tokens.refreshToken = nextTokens.refreshToken;
+
+      this.dispatchClientTokensChange();
+    }
+  }
+
+
+  /**
    * Edit the current state of the Socket.
    * This function will shallow update the state
    * so can be passed also a Partial of SocketState.
@@ -315,6 +343,31 @@ export default class Client<UserData, Storage extends {} = {}> {
 
   /**
    * Emit the event to let any listener know that
+   * the Client Tokens has been updated.
+   * Calling this when the client is not loaded
+   * will produce no effect
+   * @private
+   */
+  private dispatchClientTokensChange(): void {
+    /** If client is still no loaded, avoid dispatching */
+    if (!this._state.isLoaded) {
+      this.useLogger(
+        'event',
+        'warn',
+        'A dispatchClientTokensChange has been blocked because Client is still no loaded',
+        this.state
+      );
+      return;
+    }
+
+    /** Emit the event */
+    this.useLogger('event', 'debug', 'Dispatching a new TokensChange event', this.tokens);
+    this.events.emit('client::tokensChange', this.state);
+  }
+
+
+  /**
+   * Emit the event to let any listener know that
    * the Socket State has been updated
    * Calling this when the client is not loaded
    * will produce no effect
@@ -377,7 +430,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     callback: (clientState: ClientState<UserData>) => void,
     context?: any
   ): EventUnsubscribe {
-    /** Wrap the callback to a well know function to be unsubscribed later */
+    /** Wrap the callback to a well-known function to be unsubscribed later */
     const wrappedCallback = () => {
       callback.apply(context, [ this.state ]);
     };
@@ -391,6 +444,34 @@ export default class Client<UserData, Storage extends {} = {}> {
       /** Remove the listener */
       this.events.off('client::stateChange', wrappedCallback);
       this.useLogger('event', 'debug', 'An observer for clientState event has been removed', { callback, context });
+    };
+  }
+
+
+  /**
+   * Add a new Observer that will be fired every
+   * once the Client Tokens are changed
+   * @param callback
+   * @param context
+   */
+  public subscribeToClientTokensChange(
+    callback: (clientTokens: ClientTokens) => void,
+    context?: any
+  ): EventUnsubscribe {
+    /** Wrap the callback to a well-known function to be unsubscribed later */
+    const wrappedCallback = () => {
+      callback.apply(context, [ this.tokens ]);
+    };
+
+    /** Attach the new Listener */
+    this.useLogger('event', 'debug', 'A new observer has been registered for tokensChange event', { callback, context });
+    this.events.on('client::tokensChange', wrappedCallback);
+
+    /** Return a function to unsubscribe the listener */
+    return () => {
+      /** Remove the listener */
+      this.events.off('client::tokensChange', wrappedCallback);
+      this.useLogger('event', 'debug', 'An observer for tokensChange event has been removed', { callback, context });
     };
   }
 
@@ -1217,10 +1298,10 @@ export default class Client<UserData, Storage extends {} = {}> {
     this.useLogger('auth', 'debug', 'Resetting the Client Auth');
 
     /** Revoke all local token */
-    this._tokens = {
-      accessToken : undefined,
+    this.setTokens({
+      accessToken: undefined,
       refreshToken: undefined
-    };
+    });
 
     /** Remove LocalStorage element */
     await this.removeStoredData(this.config.auth?.accessTokenStorageField);
@@ -1275,7 +1356,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If local storage access token is valid, return it */
     if (this.hasValidAccessToken(loadedAccessToken || undefined)) {
       this.useLogger('auth', 'debug', 'AccessToken found from LocalStorage');
-      this._tokens.accessToken = loadedAccessToken!;
+      this.setTokens({ accessToken: loadedAccessToken! });
       this._deferredGetAccessToken.resolve(loadedAccessToken!.token);
       this._deferredGetAccessToken = undefined;
       return loadedAccessToken!.token;
@@ -1349,7 +1430,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       await this.setStoreData<AccessToken>(this.config.auth?.accessTokenStorageField, accessToken);
     }
 
-    this._tokens.accessToken = accessToken;
+    this.setTokens({ accessToken });
 
     return accessToken;
   }
@@ -1395,7 +1476,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If local storage access token is valid, return it */
     if (this.hasValidRefreshToken(loadedRefreshToken || undefined)) {
       this.useLogger('auth', 'debug', 'RefreshToken found from LocalStorage');
-      this._tokens.refreshToken = loadedRefreshToken as string;
+      this.setTokens({ refreshToken: loadedRefreshToken as string });
       this._deferredGetRefreshToken.resolve(loadedRefreshToken as string);
       this._deferredGetRefreshToken = undefined;
       return loadedRefreshToken as string;
@@ -1469,7 +1550,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       await this.setStoreData<RefreshToken>(this.config.auth?.refreshTokenStorageField, refreshToken);
     }
 
-    this._tokens.refreshToken = refreshToken;
+    this.setTokens({ refreshToken });
 
     return refreshToken;
   }
@@ -1525,6 +1606,12 @@ export default class Client<UserData, Storage extends {} = {}> {
   /* --------
    * Public Getters
    * -------- */
+  public get baseUrl(): string {
+    return this.client
+      ? this.client.defaults.baseURL as string
+      : '';
+  }
+
   public get state(): ClientState<UserData> {
 
     const {

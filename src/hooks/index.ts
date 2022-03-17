@@ -2,6 +2,8 @@ export * from './useClientRequest';
 
 export * from './useClientState';
 
+export * from './useClientTokens';
+
 export * from './useWebSocketEvent';
 
 export * from './useWebSocketState';
