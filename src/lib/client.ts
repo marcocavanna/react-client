@@ -1449,7 +1449,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    */
   private _deferredGetRefreshToken: Deferred<string> | undefined = undefined;
 
-  private async getRefreshToken(): Promise<string> {
+  public async getRefreshToken(): Promise<string> {
     this.useLogger('auth', 'debug', 'Load the RefreshToken');
 
     /** If a deferred promise has been already set, wait for its answer */
