@@ -41,7 +41,10 @@ type ClientLoggers = 'auth' | 'error-parser' | 'event' | 'init' | 'request' | 's
 /* --------
  * Client Configuration Object
  * -------- */
-export interface ClientConfiguration<UserData, Storage extends Record<string, any>> {
+export interface ClientConfiguration<UserData, Storage extends object> {
+  /** Set the initial store values */
+  initialStore: Storage,
+
   /** Default API Request */
   api: {
     /** An API Config used to create new User */
@@ -182,8 +185,8 @@ export default class Client<UserData, Storage extends {} = {}> {
 
 
   /** Declare a function to get Client instance */
-  public static getInstance<UD, S>(config?: ClientConfiguration<UD, S>): Client<UD, S> {
-    /** If a Client instance doesn't exists, create a new one */
+  public static getInstance<UD, S extends object>(config?: ClientConfiguration<UD, S>): Client<UD, S> {
+    /** If a Client instance doesn't exist, create a new one */
     if (!Client._instance) {
       invariant(config, 'Could not load a new Client without configuration.');
       Client._instance = new Client(config);
@@ -196,7 +199,26 @@ export default class Client<UserData, Storage extends {} = {}> {
   /* --------
    * Internal Storage
    * -------- */
-  public storage: Storage = {} as Storage;
+  private readonly _storage: Storage;
+
+
+  /**
+   * Set a property into client internal storage
+   * @param key
+   * @param value
+   */
+  public setStoreKey<K extends keyof Storage>(key: K, value: Storage[K]): void {
+    this._storage[key] = value;
+  }
+
+
+  /**
+   * Get a property from client internal storage
+   * @param key
+   */
+  public getStoreKey<K extends keyof Storage>(key: K): Storage[K] {
+    return this._storage[key];
+  }
 
 
   /* --------
@@ -368,6 +390,31 @@ export default class Client<UserData, Storage extends {} = {}> {
 
   /**
    * Emit the event to let any listener know that
+   * the Client Storage has been updated.
+   * Calling this when the client is not loaded
+   * will produce no effect
+   * @private
+   */
+  private dispatchStoragePropertyChange<K extends keyof Storage>(name: K, value: Storage[K], oldValue: Storage[K]): void {
+    /** If client is still no loaded, avoid dispatching */
+    if (!this._state.isLoaded) {
+      this.useLogger(
+        'event',
+        'warn',
+        'A dispatchStoragePropertyChange has been blocked because Client is still no loaded',
+        this.state
+      );
+      return;
+    }
+
+    /** Emit the event */
+    this.useLogger('storage', 'debug', 'Dispatching a new PropertyChange event', name, value, oldValue);
+    this.events.emit('client::storagePropertyChange', name, value, oldValue);
+  }
+
+
+  /**
+   * Emit the event to let any listener know that
    * the Socket State has been updated
    * Calling this when the client is not loaded
    * will produce no effect
@@ -478,6 +525,39 @@ export default class Client<UserData, Storage extends {} = {}> {
 
   /**
    * Add a new Observer that will be fired every
+   * once a Client Storage Property is changed
+   * @param key
+   * @param callback
+   * @param context
+   */
+  public subscribeToStoragePropertyChange<K extends keyof Storage>(
+    key: K,
+    callback: (nextValue: Storage[K], oldValue: Storage[K]) => void,
+    context?: any
+  ): EventUnsubscribe {
+    /** Wrap the callback to a well-known function to be unsubscribed later */
+    const wrappedCallback = (name: keyof Storage, value: unknown, oldValue: unknown) => {
+      /** Conditionally call only if name is the same */
+      if (name === key) {
+        callback.apply(context, [ value as Storage[K], oldValue as Storage[K] ]);
+      }
+    };
+
+    /** Attach the new listener */
+    this.useLogger('event', 'debug', 'A new observer has been registered for storagePropertyChange event', { callback, context });
+    this.events.on('client::storagePropertyChange', wrappedCallback);
+
+    /** Return a function to unsubscribe the listener */
+    return () => {
+      /** Remove the listener */
+      this.events.off('client::storagePropertyChange', wrappedCallback);
+      this.useLogger('event', 'debug', 'An observer for storagePropertyChange event has been removed', { callback, context });
+    };
+  }
+
+
+  /**
+   * Add a new Observer that will be fired every
    * once the Socket State is changed
    * @param callback
    * @param context
@@ -486,7 +566,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     callback: (webSocketState: WebSocketState) => void,
     context?: any
   ): EventUnsubscribe {
-    /** Wrap the callback to a well know function to be unsubscribed later */
+    /** Wrap the callback to a well-know function to be unsubscribed later */
     const wrappedCallback = () => {
       callback.apply(context, [ this.socketState ]);
     };
@@ -1098,6 +1178,28 @@ export default class Client<UserData, Storage extends {} = {}> {
     // ----
     this.events = new EventEmitter();
     this.events.setMaxListeners(0);
+
+
+    // ----
+    // Initialize the Storage
+    // ----
+    this._storage = new Proxy<Storage>(config?.initialStore, {
+      /** Override the default set handler to watch for property change */
+      set: (target: Storage, p: string | symbol, nextValue: any): boolean => {
+        /** Save the current target property value */
+        const currentValue = target[p as keyof Storage];
+        /** Assert property will effective change */
+        if (currentValue === nextValue) {
+          return true;
+        }
+        /** Set the property on storage */
+        target[p as keyof Storage] = nextValue;
+        /** Emit the change event */
+        this.dispatchStoragePropertyChange(p as keyof Storage, nextValue, currentValue);
+        /** Return property has been set */
+        return true;
+      }
+    });
 
 
     // ----
