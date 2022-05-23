@@ -1352,23 +1352,33 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @private
    */
   private hasValidAccessToken(accessToken: AccessToken | undefined = this._tokens.accessToken): accessToken is AccessToken {
+    this.useLogger('auth', 'debug', 'Validating AccessToken', accessToken);
+
     /** If a custom validator has been defined, use it */
     if (typeof this.config.auth?.hasValidAccessToken === 'function') {
+      this.useLogger('auth', 'debug', 'Using custom hasValidAccessToken validator');
       return this.config.auth!.hasValidAccessToken(accessToken, this);
     }
 
     /** Assert accessToken is a valid object */
     if (typeof accessToken !== 'object' || accessToken === null) {
+      this.useLogger('auth', 'debug', 'AccessToken seems to be not an object');
       return false;
     }
 
     /** Assert AccessToken token field is a string */
     if (!accessToken.token?.length) {
+      this.useLogger('auth', 'debug', 'AccessToken.token field seems to be not a string');
       return false;
     }
 
     /** Use token validity threshold to assert token could be used */
-    return (accessToken.expiresAt - (this.config.auth?.accessTokenValidityThreshold ?? 0)) > Date.now();
+    if ((accessToken.expiresAt - (this.config.auth?.accessTokenValidityThreshold ?? 0)) > Date.now()) {
+      return true;
+    }
+
+    this.useLogger('auth', 'debug', 'AccessToken is Expired');
+    return false;
   }
 
 

@@ -1,6 +1,6 @@
 {
   "name": "@appbuckets/react-app-client",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "React WebApp Client to Manage Auth and Request",
   "keywords": [
     "react",
