@@ -83,6 +83,8 @@ export interface ClientConfiguration<UserData, Storage extends object> {
       authResponse: any,
       client: Client<UserData, Storage>
     ) => RefreshToken | undefined;
+    /** Extract the RefreshToken from a query params */
+    extractRefreshTokenFromQueryParams?: string;
     /** Extract the UserData from auth Response */
     extractUserDataFromAuthResponse?: (authResponse: any, client: Client<UserData, Storage>) => UserData | undefined;
     /** A checker to get if AccessToken is Valid */
@@ -1360,7 +1362,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       return false;
     }
 
-    /** Assert access token token field is a string */
+    /** Assert AccessToken token field is a string */
     if (!accessToken.token?.length) {
       return false;
     }
@@ -1575,13 +1577,28 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If saved refresh token is invalid, try to load from local storage */
     const loadedRefreshToken = await this.getStoredData<RefreshToken>(this.config.auth?.refreshTokenStorageField);
 
-    /** If local storage access token is valid, return it */
+    /** If local storage refresh token is valid, return it */
     if (this.hasValidRefreshToken(loadedRefreshToken || undefined)) {
       this.useLogger('auth', 'debug', 'RefreshToken found from LocalStorage');
       this.setTokens({ refreshToken: loadedRefreshToken as string });
       this._deferredGetRefreshToken.resolve(loadedRefreshToken as string);
       this._deferredGetRefreshToken = undefined;
       return loadedRefreshToken as string;
+    }
+
+    /** If refresh token could be loaded from query params, try to use it */
+    if (this.config.auth?.extractRefreshTokenFromQueryParams && window.location.search) {
+      /** Transform location into UrlSearchParams object to extract the token */
+      const paramValue = new URLSearchParams(window.location.search).get(this.config.auth.extractRefreshTokenFromQueryParams);
+
+      // If param value exists, use it
+      if (paramValue) {
+        this.useLogger('auth', 'debug', `RefreshToken loaded from QueryParam key ${this.config.auth.extractRefreshTokenFromQueryParams}`);
+        this.setTokens({ refreshToken: paramValue });
+        this._deferredGetRefreshToken.resolve(paramValue);
+        this._deferredGetRefreshToken = undefined;
+        return paramValue;
+      }
     }
 
     /** If an API Request has been set, use it to get a new RefreshToken */
