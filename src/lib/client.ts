@@ -1358,7 +1358,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     }
 
     /** Assert accessToken is a valid object */
-    if (typeof accessToken !== 'object' || this._tokens.accessToken === null) {
+    if (typeof accessToken !== 'object' || accessToken === null) {
       return false;
     }
 
