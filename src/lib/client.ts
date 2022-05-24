@@ -1459,9 +1459,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** Check if current access token is valid */
     if (this.hasValidAccessToken()) {
       this.useLogger('auth', 'debug', 'In Memory AccessToken is valid');
-      this._deferredGetAccessToken.resolve(this._tokens.accessToken!.token);
-      this._deferredGetAccessToken = undefined;
-      return this._tokens.accessToken!.token;
+      return this.consolidateAccessToken(this._tokens.accessToken as AccessToken);
     }
 
     /** If saved access token is invalid, try to load from local storage */
@@ -1470,10 +1468,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If local storage access token is valid, return it */
     if (this.hasValidAccessToken(loadedAccessToken || undefined)) {
       this.useLogger('auth', 'debug', 'AccessToken found from LocalStorage');
-      this.setTokens({ accessToken: loadedAccessToken! });
-      this._deferredGetAccessToken.resolve(loadedAccessToken!.token);
-      this._deferredGetAccessToken = undefined;
-      return loadedAccessToken!.token;
+      return this.consolidateAccessToken(loadedAccessToken as AccessToken);
     }
 
     /** If an API Request has been set, use it to get a new AccessToken */
@@ -1486,7 +1481,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       if (refreshAccessTokenError || !this.hasValidAccessToken(accessToken)) {
         this.useLogger('auth', 'error', 'An error has been received from API when asking a new AccessToken');
 
-        /** Check if must invalidate auth */
+        /** Check if it must invalidate auth */
         if (this.config.auth?.invalidateAfterAccessTokenError) {
           await this.resetClientAuth();
         }
@@ -1505,16 +1500,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       }
 
       /** Save the new AccessToken */
-      await this.saveAccessToken(accessToken);
-
-      /** Resolve the deferred promise */
-      if (this._deferredGetAccessToken.isPending) {
-        this._deferredGetAccessToken.resolve(accessToken.token);
-        this._deferredGetAccessToken = undefined;
-      }
-
-      /** Return the token */
-      return accessToken.token;
+      return this.consolidateAccessToken(accessToken);
     }
 
     /** Throw an error to abort any request */
@@ -1524,6 +1510,35 @@ export default class Client<UserData, Storage extends {} = {}> {
     this._deferredGetAccessToken = undefined;
 
     throw new Error('Invalid AccessToken');
+  }
+
+
+  /**
+   * As the process of getting AccessToken is split between
+   * various different methods, this function will unify
+   * the store of the loaded access token object
+   * @param accessToken
+   * @private
+   */
+  private async consolidateAccessToken(accessToken: AccessToken): Promise<string> {
+    this.useLogger('auth', 'debug', 'Consolidating RefreshToken', accessToken);
+
+    /** Save the access token into current client instance */
+    if (this._tokens.accessToken !== accessToken) {
+      this.setTokens({ accessToken });
+    }
+
+    /** Check if Deferred loading of access token is awaiting a resolution */
+    if (this._deferredGetAccessToken?.isPending) {
+      this._deferredGetAccessToken.resolve(accessToken.token);
+      this._deferredGetAccessToken = undefined;
+    }
+
+    /** Save the access token into local storage */
+    await this.saveAccessToken(accessToken);
+
+    /** Return the consolidated access token */
+    return accessToken.token;
   }
 
 
@@ -1579,9 +1594,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If a valid RefreshToken already exists, use it */
     if (this.hasValidRefreshToken()) {
       this.useLogger('auth', 'debug', 'In Memory RefreshToken is valid');
-      this._deferredGetRefreshToken.resolve(this._tokens.refreshToken as string);
-      this._deferredGetRefreshToken = undefined;
-      return this._tokens.refreshToken as string;
+      return this.consolidateRefreshToken(this._tokens.refreshToken as string);
     }
 
     /** If saved refresh token is invalid, try to load from local storage */
@@ -1590,10 +1603,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If local storage refresh token is valid, return it */
     if (this.hasValidRefreshToken(loadedRefreshToken || undefined)) {
       this.useLogger('auth', 'debug', 'RefreshToken found from LocalStorage');
-      this.setTokens({ refreshToken: loadedRefreshToken as string });
-      this._deferredGetRefreshToken.resolve(loadedRefreshToken as string);
-      this._deferredGetRefreshToken = undefined;
-      return loadedRefreshToken as string;
+      return this.consolidateRefreshToken(loadedRefreshToken as string);
     }
 
     /** If refresh token could be loaded from query params, try to use it */
@@ -1604,10 +1614,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       // If param value exists, use it
       if (paramValue) {
         this.useLogger('auth', 'debug', `RefreshToken loaded from QueryParam key ${this.config.auth.extractRefreshTokenFromQueryParams}`);
-        this.setTokens({ refreshToken: paramValue });
-        this._deferredGetRefreshToken.resolve(paramValue);
-        this._deferredGetRefreshToken = undefined;
-        return paramValue;
+        return this.consolidateRefreshToken(paramValue);
       }
     }
 
@@ -1640,16 +1647,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       }
 
       /** Save the received refreshToken */
-      await this.saveRefreshToken(refreshToken);
-
-      /** Resolve the deferred promise */
-      if (this._deferredGetRefreshToken.isPending) {
-        this._deferredGetRefreshToken.resolve(refreshToken);
-        this._deferredGetRefreshToken = undefined;
-      }
-
-      /** Return the correct refreshToken */
-      return refreshToken;
+      return this.consolidateRefreshToken(refreshToken);
     }
 
     /** Throw an error to abort any request */
@@ -1659,6 +1657,35 @@ export default class Client<UserData, Storage extends {} = {}> {
     this._deferredGetRefreshToken = undefined;
 
     throw new Error('Invalid RefreshToken');
+  }
+
+
+  /**
+   * As the process of getting RefreshToken is split between
+   * various different methods, this function will unify
+   * the store of the loaded refresh token string
+   * @param refreshToken
+   * @private
+   */
+  private async consolidateRefreshToken(refreshToken: string): Promise<string> {
+    this.useLogger('auth', 'debug', 'Consolidating RefreshToken', refreshToken);
+
+    /** Save the refresh token into current client instance */
+    if (this._tokens.refreshToken !== refreshToken) {
+      this.setTokens({ refreshToken });
+    }
+
+    /** Check if Deferred loading of refresh token is awaiting a resolution */
+    if (this._deferredGetRefreshToken?.isPending) {
+      this._deferredGetRefreshToken.resolve(refreshToken);
+      this._deferredGetRefreshToken = undefined;
+    }
+
+    /** Save the refresh token into local storage */
+    await this.saveRefreshToken(refreshToken);
+
+    /** Return the consolidated refresh token */
+    return refreshToken;
   }
 
 
