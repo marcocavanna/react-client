@@ -1473,34 +1473,22 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** If an API Request has been set, use it to get a new AccessToken */
     if (this.config.api?.grantAccessToken) {
-      this.useLogger('auth', 'debug', 'Ask a new Token to API Server');
-      /** Make the Request */
-      const [ refreshAccessTokenError, accessToken ] = await this.willRequest<AccessToken>(this.config.api.grantAccessToken);
+      const [ grantError, consolidatedToken ] = await will(this.grantNewAccessToken());
 
-      /** Throw any error from request */
-      if (refreshAccessTokenError || !this.hasValidAccessToken(accessToken)) {
-        this.useLogger('auth', 'error', 'An error has been received from API when asking a new AccessToken');
-
-        /** Check if it must invalidate auth */
-        if (this.config.auth?.invalidateAfterAccessTokenError) {
-          await this.resetClientAuth();
-        }
-
-        /** Prebuild the error */
-        const refreshAccessTokenPrebuiltError = refreshAccessTokenError ?? new Error('Invalid Access Token received from API Server');
-
+      /** Check if an error has to be thrown */
+      if (grantError) {
         /** Reject the Promise */
         if (this._deferredGetAccessToken.isPending) {
-          this._deferredGetAccessToken.reject(refreshAccessTokenPrebuiltError);
+          this._deferredGetAccessToken.reject(grantError);
           this._deferredGetAccessToken = undefined;
         }
 
         /** Throw the main error */
-        throw refreshAccessTokenPrebuiltError;
+        throw grantError;
       }
 
-      /** Save the new AccessToken */
-      return this.consolidateAccessToken(accessToken);
+      /** Return the already consolidated and saved access token */
+      return consolidatedToken;
     }
 
     /** Throw an error to abort any request */
@@ -1510,6 +1498,41 @@ export default class Client<UserData, Storage extends {} = {}> {
     this._deferredGetAccessToken = undefined;
 
     throw new Error('Invalid AccessToken');
+  }
+
+
+  /**
+   * Remove the current stored AccessToken
+   * and try to grant a new token from API Server
+   */
+  public async grantNewAccessToken(): Promise<string> {
+    this.useLogger('auth', 'debug', 'Refreshing AccessToken');
+
+    /** Assert a function to get the AccessToken from server Exists */
+    if (!this.config.api?.grantAccessToken) {
+      throw new Error('Could not Grant a new AccessToken from API Server. Check the grantAccessToken function on config.api');
+    }
+
+    this.useLogger('auth', 'debug', 'Ask a new Token to API Server');
+
+    /** Make the Request */
+    const [ refreshAccessTokenError, accessToken ] = await this.willRequest<AccessToken>(this.config.api.grantAccessToken);
+
+    /** Throw any error from request */
+    if (refreshAccessTokenError || !this.hasValidAccessToken(accessToken)) {
+      this.useLogger('auth', 'error', 'An error has been received from API when asking a new AccessToken');
+
+      /** Check if it must invalidate auth */
+      if (this.config.auth?.invalidateAfterAccessTokenError) {
+        await this.resetClientAuth();
+      }
+
+      /** Throw the main error */
+      throw refreshAccessTokenError ?? new Error('Invalid Access Token received from API Server');
+    }
+
+    /** Save the new AccessToken */
+    return this.consolidateAccessToken(accessToken);
   }
 
 
