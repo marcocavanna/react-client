@@ -275,7 +275,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @param newTokens
    * @private
    */
-  private setTokens(newTokens: Partial<ClientTokens>): void {
+  private setTokens(newTokens: Partial<ClientTokens>): boolean {
     /** Produce an object with new tokens */
     const nextTokens: ClientTokens = {
       ...this._tokens,
@@ -292,7 +292,13 @@ export default class Client<UserData, Storage extends {} = {}> {
       this._tokens.refreshToken = nextTokens.refreshToken;
 
       this.dispatchClientTokensChange();
+
+      /** Return true to tell tokens has been changed */
+      return true;
     }
+
+    /** Return false to tell tokens has not been changed */
+    return false;
   }
 
 
@@ -1873,6 +1879,21 @@ export default class Client<UserData, Storage extends {} = {}> {
   /* --------
    * Public Methods
    * -------- */
+
+
+  /**
+   * Replace the current saved ClientTokens with new one.
+   * After token has been replaced, new user data will be loaded.
+   *
+   * @param newTokens
+   */
+  public async replaceClientTokens(newTokens: ClientTokens): Promise<void> {
+    /** Replace Tokens */
+    this.setTokens(newTokens);
+
+    /** Reload userData */
+    await this.reloadUserData();
+  }
 
   /**
    * Return UserData from API Server.
