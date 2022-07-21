@@ -1550,7 +1550,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @private
    */
   private async consolidateAccessToken(accessToken: AccessToken): Promise<string> {
-    this.useLogger('auth', 'debug', 'Consolidating RefreshToken', accessToken);
+    this.useLogger('auth', 'debug', 'Consolidating AccessToken', accessToken);
 
     /** Save the access token into current client instance */
     if (this._tokens.accessToken !== accessToken) {
@@ -1888,8 +1888,17 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @param newTokens
    */
   public async replaceClientTokens(newTokens: ClientTokens): Promise<void> {
-    /** Replace Tokens */
+    /** Replace Tokens saved token into local client instance */
     this.setTokens(newTokens);
+
+    /** Consolidate the Tokens */
+    if (this._tokens.accessToken) {
+      await this.consolidateAccessToken(this._tokens.accessToken);
+    }
+
+    if (this._tokens.refreshToken) {
+      await this.consolidateRefreshToken(this._tokens.refreshToken);
+    }
 
     /** Reload userData */
     await this.reloadUserData();
