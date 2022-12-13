@@ -80,7 +80,6 @@
     "axios": "^1.2.1",
     "events": "^3.3.0",
     "localforage": "^1.9.0",
-    "logdown": "^3.3.1",
-    "tiny-invariant": "^1.1.0"
+    "logdown": "^3.3.1"
   }
 }

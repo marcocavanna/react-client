@@ -6,7 +6,6 @@ import type { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } fro
 import localforage from 'localforage';
 
 import logdown from 'logdown';
-import invariant from 'tiny-invariant';
 
 import type {
   AccessToken,
@@ -60,7 +59,7 @@ export interface ClientConfiguration<UserData, Storage extends object> {
     grantAccessToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to retrieve a new RefreshToken */
     grantRefreshToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
-    /** An API Config used to login with email and password */
+    /** An API Config used to log in with email and password */
     loginWithUsernameAndPassword?:
       | ClientRequest
       | ((client: Client<UserData, Storage>, username: string, password: string) => ClientRequest);
@@ -158,7 +157,7 @@ export interface ClientConfiguration<UserData, Storage extends object> {
 
   /** WebSocket Option */
   websocket?: {
-    /** A function to know if socket could exists or not */
+    /** A function to know if socket could exist or not */
     couldHaveSocket?: ((state: ClientState<UserData>) => boolean) | boolean;
     /** Get Socket Protocol */
     getProtocol?: ((client: Client<UserData, Storage>) => string);
@@ -195,7 +194,11 @@ export default class Client<UserData, Storage extends {} = {}> {
   public static getInstance<UD, S extends object>(config?: ClientConfiguration<UD, S>): Client<UD, S> {
     /** If a Client instance doesn't exist, create a new one */
     if (!Client._instance) {
-      invariant(config, 'Could not load a new Client without configuration.');
+      /** Assert config has been provided */
+      if (!config) {
+        throw new Error('Could not load a new Client without configuration.');
+      }
+      /** Create new Client Instance */
       Client._instance = new Client(config);
     }
     /** Return the Singleton Instance of Client */
@@ -318,7 +321,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @private
    */
   private setSocketState(newState: Partial<WebSocketState>): void {
-    /** Check if some key has changed, and update only if need */
+    /** Check if some key has changed, and update only if is need it */
     const willChange = (Object.keys(newState) as (keyof WebSocketState)[]).reduce((isChanged, key) => (
       isChanged || newState[key] !== this._socketState[key]
     ), false);
@@ -633,7 +636,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     namespace?: string,
     context?: any
   ): EventUnsubscribe {
-    /** Wrap the callback to a well know function to be unsubscribed later */
+    /** Wrap the callback to a well-known function to be unsubscribed later */
     const wrappedCallback = (data: WebSocketEvent) => {
       /** If a namespace has been specified, use to filter event */
       if (namespace && data.namespace !== namespace) {
@@ -775,7 +778,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       this.useLogger('storage', 'debug', `Requested store '${field}' is invalid, skip save data.`);
       return;
     }
-    /** If localStorage doesn't exists, return */
+    /** If localStorage doesn't exist, return */
     if (this.localStorage === undefined) {
       this.useLogger('storage', 'debug', 'LocalStorage has not been enabled, skip save data.');
       return;
@@ -802,7 +805,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       this.useLogger('storage', 'debug', `Requested store '${field}' is invalid, skip removing data.`);
       return;
     }
-    /** If localStorage doesn't exists, return */
+    /** If localStorage doesn't exist, return */
     if (this.localStorage === undefined) {
       this.useLogger('storage', 'debug', 'LocalStorage has not been enabled, skip removing data.');
       return;
@@ -943,12 +946,12 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** If the client could have a socket, but socket is undefined, create a new one */
     if (couldHaveSocket && !this.socket) {
-      this.useLogger('socket', 'debug', 'A socket could exists but its currently undefined');
+      this.useLogger('socket', 'debug', 'A socket could exist but it is undefined');
       this.initializeSocketClient();
     }
     /** Else, if the client has a socket, but could not have one, remove it */
     else if (!couldHaveSocket && this.socket) {
-      this.useLogger('socket', 'debug', 'A socket could not exists but its currently on');
+      this.useLogger('socket', 'debug', 'A socket could not exist but is active');
       this.destroySocketClient();
     }
   }
@@ -1021,7 +1024,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @private
    */
   private destroySocketClient(): void {
-    /** Assert Socket Client exists and it's not closing */
+    /** Assert Socket Client exists and it is not closing */
     if (!this.socket || this.socketState.isClosing) {
       return;
     }
@@ -1174,7 +1177,7 @@ export default class Client<UserData, Storage extends {} = {}> {
 
       /** Socket could also receive a system socket message, that must be handled by Client */
       if (type === 'system') {
-        /** If namespace is server, than it is the communication of the server version */
+        /** If namespace is server, then it is the communication of the server version */
         if (namespace === 'server') {
           /** Assert version is a valid string */
           if (typeof parsed.version === 'string') {
@@ -1220,7 +1223,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       set: (target: Storage, p: string | symbol, nextValue: any): boolean => {
         /** Save the current target property value */
         const currentValue = target[p as keyof Storage];
-        /** Assert property will effective change */
+        /** Assert property will effectively change */
         if (currentValue === nextValue) {
           return true;
         }
@@ -1314,7 +1317,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * Initialize the Client.
    * The __init function will never throw,
    * any error occurred in this process will be
-   * considered like a non authorized client
+   * considered like a non-authorized client
    */
   private async __init(): Promise<UserData | null> {
     try {
@@ -1977,10 +1980,11 @@ export default class Client<UserData, Storage extends {} = {}> {
    */
   public async loginWithUsernameAndPassword(username: string, password: string): Promise<UserData | undefined> {
     /** Check the request config exists for this API */
-    invariant(
-      this.config.api.loginWithUsernameAndPassword,
-      'Could not use loginWithEmailAndPassword without configuring the API in \'config.api.loginWithUsernameAndPassword\' field'
-    );
+    if (!this.config.api.loginWithUsernameAndPassword) {
+      throw new Error(
+        'Could not use loginWithEmailAndPassword without configuring the API in \'config.api.loginWithUsernameAndPassword\' field'
+      );
+    }
 
     /** Get the AuthResponse */
     const loginWithEmailAndPasswordConfig = typeof this.config.api.loginWithUsernameAndPassword === 'function'
@@ -2005,10 +2009,11 @@ export default class Client<UserData, Storage extends {} = {}> {
    */
   public async createUserWithUsernameAndPassword<Dto>(signupData: Dto): Promise<UserData | undefined> {
     /** Check the request config exists for this API */
-    invariant(
-      this.config.api.createUserWithUsernameAndPassword,
-      'Could not use createUserWithEmailAndPassword without configuring the API in \'config.api.createUserWithUsernameAndPassword\' field'
-    );
+    if (!this.config.api.createUserWithUsernameAndPassword) {
+      throw new Error(
+        'Could not use createUserWithEmailAndPassword without configuring the API in \'config.api.createUserWithUsernameAndPassword\' field'
+      );
+    }
 
     /** Get the AuthResponse */
     const createUserWithEmailAndPasswordConfig = typeof this.config.api.createUserWithUsernameAndPassword === 'function'
