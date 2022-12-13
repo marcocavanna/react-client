@@ -25,9 +25,11 @@ import type {
 } from './client.interfaces';
 import { Deferred } from './utils/Deferred';
 
-import { getProcessDependingValue, ProcessDependingField } from './utils/getProcessDependingValue';
+import { getProcessDependingValue } from './utils/getProcessDependingValue';
 import { prepareURL } from './utils/prepareURL';
 import { will } from './utils/will';
+
+import type { ProcessDependingField } from './utils/getProcessDependingValue';
 
 
 /* --------
@@ -48,7 +50,10 @@ export interface ClientConfiguration<UserData, Storage extends object> {
   /** Default API Request */
   api: {
     /** An API Config used to create new User */
-    createUserWithUsernameAndPassword?: ClientRequest | ((client: Client<UserData, Storage>, signupData: any) => ClientRequest);
+    createUserWithUsernameAndPassword?: ClientRequest | ((
+      client: Client<UserData, Storage>,
+      signupData: any
+    ) => ClientRequest);
     /** An API Config used to load UserData */
     getUserData: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to retrieve a new AccessToken */
@@ -56,9 +61,9 @@ export interface ClientConfiguration<UserData, Storage extends object> {
     /** An API Config used to retrieve a new RefreshToken */
     grantRefreshToken?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
     /** An API Config used to login with email and password */
-    loginWithUsernameAndPassword?: ClientRequest | (
-      (client: Client<UserData, Storage>, username: string, password: string) => ClientRequest
-    );
+    loginWithUsernameAndPassword?:
+      | ClientRequest
+      | ((client: Client<UserData, Storage>, username: string, password: string) => ClientRequest);
     /** An API Config used to perform logout */
     logout?: ClientRequest | ((client: Client<UserData, Storage>) => ClientRequest);
   },
@@ -403,7 +408,11 @@ export default class Client<UserData, Storage extends {} = {}> {
    * will produce no effect
    * @private
    */
-  private dispatchStoragePropertyChange<K extends keyof Storage>(name: K, value: Storage[K], oldValue: Storage[K]): void {
+  private dispatchStoragePropertyChange<K extends keyof Storage>(
+    name: K,
+    value: Storage[K],
+    oldValue: Storage[K]
+  ): void {
     /** If client is still no loaded, avoid dispatching */
     if (!this._state.isLoaded) {
       this.useLogger(
@@ -519,7 +528,12 @@ export default class Client<UserData, Storage extends {} = {}> {
     };
 
     /** Attach the new Listener */
-    this.useLogger('event', 'debug', 'A new observer has been registered for tokensChange event', { callback, context });
+    this.useLogger(
+      'event',
+      'debug',
+      'A new observer has been registered for tokensChange event',
+      { callback, context }
+    );
     this.events.on('client::tokensChange', wrappedCallback);
 
     /** Return a function to unsubscribe the listener */
@@ -552,14 +566,24 @@ export default class Client<UserData, Storage extends {} = {}> {
     };
 
     /** Attach the new listener */
-    this.useLogger('event', 'debug', 'A new observer has been registered for storagePropertyChange event', { callback, context });
+    this.useLogger(
+      'event',
+      'debug',
+      'A new observer has been registered for storagePropertyChange event',
+      { callback, context }
+    );
     this.events.on('client::storagePropertyChange', wrappedCallback);
 
     /** Return a function to unsubscribe the listener */
     return () => {
       /** Remove the listener */
       this.events.off('client::storagePropertyChange', wrappedCallback);
-      this.useLogger('event', 'debug', 'An observer for storagePropertyChange event has been removed', { callback, context });
+      this.useLogger(
+        'event',
+        'debug',
+        'An observer for storagePropertyChange event has been removed',
+        { callback, context }
+      );
     };
   }
 
@@ -843,12 +867,12 @@ export default class Client<UserData, Storage extends {} = {}> {
         this.useLogger('error-parser', 'debug', 'Error is a valid Axios Error. Keeping original properties', response);
         return {
           statusCode: response.status,
-          error     : response.data?.title ?? this.genericRequestError.error,
-          message   : response.data?.detail ?? this.genericRequestError.message,
-          method    : config.method?.toUpperCase() ?? this.genericRequestError.method,
-          response  : response.data,
+          error     : (response.data as any)?.title ?? this.genericRequestError.error,
+          message   : (response.data as any)?.detail ?? this.genericRequestError.message,
+          method    : config?.method?.toUpperCase() ?? this.genericRequestError.method,
+          response  : response.data as any,
           stack,
-          url       : config.url ? `${this.client?.defaults.baseURL}/${config.url}` : this.genericRequestError.url
+          url       : config?.url ? `${this.client?.defaults.baseURL}/${config.url}` : this.genericRequestError.url
         };
       }
 
@@ -900,7 +924,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * -------- */
   private socket: WebSocket | undefined;
 
-  private socketReconnectionInterval: NodeJS.Timeout | undefined;
+  private socketReconnectionInterval: number | undefined;
 
 
   /**
@@ -1028,7 +1052,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** Clear the Interval only if exists */
     if (this.socketReconnectionInterval) {
       this.useLogger('socket', 'debug', 'Destroying the Socket Reconnection Interval');
-      clearInterval(this.socketReconnectionInterval);
+      window.clearInterval(this.socketReconnectionInterval);
       this.socketReconnectionInterval = undefined;
     }
   }
@@ -1041,7 +1065,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     }
     /** Create the new interval */
     this.useLogger('socket', 'debug', 'Creating a new Socket Reconnection Interval');
-    this.socketReconnectionInterval = setInterval(this.assertSocketClient.bind(this), 2000);
+    this.socketReconnectionInterval = window.setInterval(this.assertSocketClient.bind(this), 2000);
   }
 
 
@@ -1419,7 +1443,7 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** Revoke all local token */
     this.setTokens({
-      accessToken: undefined,
+      accessToken : undefined,
       refreshToken: undefined
     });
 
@@ -1448,6 +1472,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    * @private
    */
   private _deferredGetAccessToken: Deferred<string> | undefined = undefined;
+
 
   public async getAccessToken(): Promise<string> {
     this.useLogger('auth', 'debug', 'Load the AccessToken');
@@ -1516,7 +1541,8 @@ export default class Client<UserData, Storage extends {} = {}> {
 
     /** Assert a function to get the AccessToken from server Exists */
     if (!this.config.api?.grantAccessToken) {
-      throw new Error('Could not Grant a new AccessToken from API Server. Check the grantAccessToken function on config.api');
+      throw new Error(
+        'Could not Grant a new AccessToken from API Server. Check the grantAccessToken function on config.api');
     }
 
     this.useLogger('auth', 'debug', 'Ask a new Token to API Server');
@@ -1607,6 +1633,7 @@ export default class Client<UserData, Storage extends {} = {}> {
    */
   private _deferredGetRefreshToken: Deferred<string> | undefined = undefined;
 
+
   public async getRefreshToken(): Promise<string> {
     this.useLogger('auth', 'debug', 'Load the RefreshToken');
 
@@ -1643,7 +1670,11 @@ export default class Client<UserData, Storage extends {} = {}> {
 
       /** If param value exists, consolidate the token, remove from query string and reload page */
       if (tokenValue) {
-        this.useLogger('auth', 'debug', `RefreshToken loaded from QueryParam key ${this.config.auth.extractRefreshTokenFromQueryParams}`);
+        this.useLogger(
+          'auth',
+          'debug',
+          `RefreshToken loaded from QueryParam key ${this.config.auth.extractRefreshTokenFromQueryParams}`
+        );
         const consolidatedToken = this.consolidateRefreshToken(tokenValue);
 
         /** Remove the query params from URL */
@@ -1671,7 +1702,8 @@ export default class Client<UserData, Storage extends {} = {}> {
         await this.resetClientAuth();
 
         /** Prebuild the Error */
-        const grantRefreshTokenPrebuiltError = grantRefreshTokenError ?? new Error('Invalid Refresh Token received from API Server');
+        const grantRefreshTokenPrebuiltError = grantRefreshTokenError ?? new Error(
+          'Invalid Refresh Token received from API Server');
 
         /** Reject the Promise */
         if (this._deferredGetRefreshToken.isPending) {
@@ -1805,6 +1837,7 @@ export default class Client<UserData, Storage extends {} = {}> {
       : '';
   }
 
+
   public get state(): ClientState<UserData> {
 
     const {
@@ -1911,6 +1944,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** Reload userData */
     await this.reloadUserData();
   }
+
 
   /**
    * Return UserData from API Server.

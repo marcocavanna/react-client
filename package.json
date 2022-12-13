@@ -1,6 +1,6 @@
 {
   "name": "@appbuckets/react-app-client",
-  "version": "1.8.8",
+  "version": "2.0.0",
   "description": "React WebApp Client to Manage Auth and Request",
   "keywords": [
     "react",
@@ -40,27 +40,27 @@
     "build:dev": "cross-env NODE_ENV=development yarn compile:rollup",
     "build:declaration": "tsc -p tsconfig.declaration.json",
     "precompile:rollup": "rimraf build",
-    "compile:rollup": "rollup -c",
+    "compile:rollup": "rollup -c --bundleConfigAsCjs",
     "postcompile:rollup": "yarn build:declaration && yarn prettier",
     "lint": "eslint .",
     "prettier": "prettier --config .prettierrc --write \"build/**/*{.js,.ts}\""
   },
   "peerDependencies": {
-    "react": ">=16",
-    "react-dom": ">=16"
+    "react": ">=16 || >=17",
+    "react-dom": ">=16 || >=17"
   },
   "devDependencies": {
     "@babel/core": "^7.0.0-0",
-    "@rollup/plugin-commonjs": "^18.0.0",
+    "@rollup/plugin-commonjs": "^23.0.4",
     "@types/node": "^14.14.37",
     "@types/react": "^17.0.3",
     "@types/react-dom": "^17.0.3",
     "@types/typescript": "^2.0.0",
-    "@typescript-eslint/eslint-plugin": "^4.19.0",
-    "@typescript-eslint/parser": "^4.19.0",
+    "@typescript-eslint/eslint-plugin": "^5.46.1",
+    "@typescript-eslint/parser": "^5.46.1",
     "cross-env": "^7.0.2",
-    "eslint": "^7.23.0",
-    "eslint-config-airbnb-typescript": "^12.3.1",
+    "eslint": "^8.29.0",
+    "eslint-config-airbnb-typescript": "^17.0.0",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-jsx-a11y": "^6.4.1",
     "eslint-plugin-react": "^7.23.1",
@@ -69,15 +69,15 @@
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
     "rimraf": "^3.0.2",
-    "rollup": "^2.43.0",
+    "rollup": "^3.7.4",
     "rollup-plugin-peer-deps-external": "^2.2.4",
-    "rollup-plugin-typescript2": "^0.30.0",
+    "rollup-plugin-typescript2": "^0.34.1",
     "tslib": "^2.1.0",
     "typescript": "^4.2.3"
   },
   "dependencies": {
-    "@appbuckets/react-ui-core": "^0.2.7",
-    "axios": "^0.21.1",
+    "@appbuckets/react-ui-core": "^0.4.6",
+    "axios": "^1.2.1",
     "events": "^3.3.0",
     "localforage": "^1.9.0",
     "logdown": "^3.3.1",

@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import { ClientConsumer } from '../context/client.context';
 
-import Client from '../lib/client';
+import type Client from '../lib/client';
 
 
 export interface WithClientProps {

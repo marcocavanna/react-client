@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { useClient } from '../context/client.context';
-import { WebSocketState } from '../lib/client.interfaces';
+import type { WebSocketState } from '../lib/client.interfaces';
 
 
 /**

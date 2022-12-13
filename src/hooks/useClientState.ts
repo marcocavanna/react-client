@@ -1,13 +1,13 @@
 import * as React from 'react';
 
 import { useClient } from '../context/client.context';
-import { ClientState } from '../lib/client.interfaces';
+import type { ClientState } from '../lib/client.interfaces';
 
 
 /**
- * Build an Hook to retrieve the current
+ * Build a Hook to retrieve the current
  * Client state and its data.
- * Hook contains a function to updated the state,
+ * Hook contains a function to update the state,
  * Hook result will automatically reload when client
  * state change.
  * To make sure userData exists, a generic State type

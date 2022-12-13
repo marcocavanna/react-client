@@ -1,9 +1,9 @@
 import * as React from 'react';
 
 import { useClient } from '../context/client.context';
-import { EventUnsubscribe, WebSocketEvent } from '../lib/client.interfaces';
 
-import { UseWebSocketEventConfig } from './hooks.types';
+import type { EventUnsubscribe, WebSocketEvent } from '../lib/client.interfaces';
+import type { UseWebSocketEventConfig } from './hooks.types';
 
 
 /**

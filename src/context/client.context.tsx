@@ -7,7 +7,7 @@ const {
   hook    : useClient,
   Provider: ClientProvider,
   Consumer: ClientConsumer
-} = contextBuilder<Client<any>>();
+} = contextBuilder<Client<any>>(undefined, 'ClientContext');
 
 
 export {

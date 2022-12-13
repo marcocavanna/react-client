@@ -2,15 +2,23 @@ module.exports = {
   root         : true,
   parser       : '@typescript-eslint/parser',
   parserOptions: {
-    project: './tsconfig.eslint.json'
+    ecmaVersion: 7,
+    project    : './tsconfig.eslint.json',
+  },
+  settings     : {
+    react: {
+      version: 'detect',
+    },
   },
   plugins      : [
-    '@typescript-eslint',
-    'react-hooks'
+    'import',
+    'react',
+    'react-hooks',
+    '@typescript-eslint/eslint-plugin',
   ],
   extends      : [
     'airbnb-typescript',
-    'plugin:react-hooks/recommended'
+    'plugin:react-hooks/recommended',
   ],
   rules        : {
     // Base Rules
@@ -24,6 +32,7 @@ module.exports = {
     'import/prefer-default-export'     : [ 'off' ],
     'max-len'                          : [ 'error', { code: 130, ignoreUrls: true, ignoreStrings: true } ],
     'no-case-declarations'             : [ 'off' ],
+    'no-console'                       : [ 'warn', { allow: [ 'error' ] } ],
     'no-multiple-empty-lines'          : [ 'error', { max: 2, maxEOF: 0 } ],
     'no-nested-ternary'                : [ 'off' ],
     'no-param-reassign'                : [ 'error', { props: false } ],
@@ -34,11 +43,19 @@ module.exports = {
     'prefer-promise-reject-errors'     : [ 'off' ],
 
     // Strict Typescript file Rules
-    '@typescript-eslint/brace-style'      : [ 'error', 'stroustrup' ],
-    '@typescript-eslint/comma-dangle'     : [ 'off' ],
-    '@typescript-eslint/indent'           : [ 'error', 2 ],
-    '@typescript-eslint/naming-convention': [ 'off' ],
-    '@typescript-eslint/no-throw-literal' : [ 'off' ],
+    '@typescript-eslint/consistent-type-imports': [ 'error' ],
+    '@typescript-eslint/brace-style'            : [ 'error', 'stroustrup' ],
+    '@typescript-eslint/comma-dangle'           : [ 'off' ],
+    '@typescript-eslint/indent'                 : [
+      'error',
+      2,
+      { ignoredNodes: [ 'PropertyDefinition[decorators]', 'TSUnionType' ] },
+    ],
+    '@typescript-eslint/naming-convention'      : [ 'off' ],
+    '@typescript-eslint/no-redeclare'           : [ 'error', { builtinGlobals: false } ],
+    '@typescript-eslint/no-throw-literal'       : [ 'off' ],
+    '@typescript-eslint/no-unused-vars'         : [ 'warn' ],
+    '@typescript-eslint/space-before-blocks'    : [ 'off' ],
 
     // JSX a11n
     'jsx-a11y/no-noninteractive-element-interactions': [ 'off' ],
@@ -49,6 +66,7 @@ module.exports = {
     'react/jsx-boolean-value'          : [ 'off' ],
     'react/jsx-curly-brace-presence'   : [ 'error', { props: 'always', children: 'never' } ],
     'react/jsx-fragments'              : [ 'error', 'element' ],
+    'react/jsx-key'                    : [ 'error', { checkKeyMustBeforeSpread: true } ],
     'react/jsx-one-expression-per-line': [ 'off' ],
     'react/jsx-props-no-spreading'     : [ 'off' ],
     'react/no-array-index-key'         : [ 'off' ],
@@ -56,6 +74,6 @@ module.exports = {
     'react/prop-types'                 : [ 'off' ],
     'react/require-default-props'      : [ 'off' ],
     'react/state-in-constructor'       : [ 'error', 'never' ],
-    'react/static-property-placement'  : [ 'off' ]
-  }
+    'react/static-property-placement'  : [ 'off' ],
+  },
 };
