@@ -1638,12 +1638,20 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** If refresh token could be loaded from query params, try to use it */
     if (this.config.auth?.extractRefreshTokenFromQueryParams && window.location.search) {
       /** Transform location into UrlSearchParams object to extract the token */
-      const paramValue = new URLSearchParams(window.location.search).get(this.config.auth.extractRefreshTokenFromQueryParams);
+      const searchParams = new URLSearchParams(window.location.search);
+      const tokenValue = searchParams.get(this.config.auth.extractRefreshTokenFromQueryParams);
 
-      // If param value exists, use it
-      if (paramValue) {
+      /** If param value exists, consolidate the token, remove from query string and reload page */
+      if (tokenValue) {
         this.useLogger('auth', 'debug', `RefreshToken loaded from QueryParam key ${this.config.auth.extractRefreshTokenFromQueryParams}`);
-        return this.consolidateRefreshToken(paramValue);
+        const consolidatedToken = this.consolidateRefreshToken(tokenValue);
+
+        /** Remove the query params from URL */
+        searchParams.delete(this.config.auth.extractRefreshTokenFromQueryParams);
+        window.location.search = searchParams.toString();
+
+        /** Return consolidated token */
+        return consolidatedToken;
       }
     }
 
