@@ -1545,7 +1545,8 @@ export default class Client<UserData, Storage extends {} = {}> {
     /** Assert a function to get the AccessToken from server Exists */
     if (!this.config.api?.grantAccessToken) {
       throw new Error(
-        'Could not Grant a new AccessToken from API Server. Check the grantAccessToken function on config.api');
+        'Could not Grant a new AccessToken from API Server. Check the grantAccessToken function on config.api'
+      );
     }
 
     this.useLogger('auth', 'debug', 'Ask a new Token to API Server');
@@ -1705,8 +1706,8 @@ export default class Client<UserData, Storage extends {} = {}> {
         await this.resetClientAuth();
 
         /** Prebuild the Error */
-        const grantRefreshTokenPrebuiltError = grantRefreshTokenError ?? new Error(
-          'Invalid Refresh Token received from API Server');
+        const grantRefreshTokenPrebuiltError = grantRefreshTokenError
+          ?? new Error('Invalid Refresh Token received from API Server');
 
         /** Reject the Promise */
         if (this._deferredGetRefreshToken.isPending) {
