@@ -103,6 +103,8 @@ export interface ClientConfiguration<UserData, Storage extends object> {
     refreshTokenQueryParamName?: string;
     /** The field into save refreshToken to use in request */
     refreshTokenStorageField?: string;
+    /** Choose if the extract refreshToken from URL must be removed */
+    removeExtractRefreshTokenQueryParam?: boolean;
     /** The field into save userData */
     userDataStorageField?: string;
   };
@@ -1681,9 +1683,11 @@ export default class Client<UserData, Storage extends {} = {}> {
         );
         const consolidatedToken = this.consolidateRefreshToken(tokenValue);
 
-        /** Remove the query params from URL */
-        searchParams.delete(this.config.auth.extractRefreshTokenFromQueryParams);
-        window.location.search = searchParams.toString();
+        /** Remove the query params from URL, only if necessary */
+        if (this.config.auth.removeExtractRefreshTokenQueryParam) {
+          searchParams.delete(this.config.auth.extractRefreshTokenFromQueryParams);
+          window.location.search = searchParams.toString();
+        }
 
         /** Return consolidated token */
         return consolidatedToken;
