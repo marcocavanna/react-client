@@ -121,6 +121,8 @@ export interface ClientConfiguration<UserData, Storage extends object> {
 
   /** Configure the Local Database */
   localDb?: {
+    /** Set the driver to use */
+    driver?: 'INDEXEDDB' | 'WEBSQL' | 'LOCALSTORAGE';
     /** Set a description for the Storage */
     description?: ProcessDependingField<string>;
     /** Set the name of the Storage */
@@ -1255,6 +1257,7 @@ export default class Client<UserData, Storage extends {} = {}> {
     // ----
     if (config?.localDb) {
       this.localStorage = localforage.createInstance({
+        driver     : localforage[config.localDb.driver || 'INDEXEDDB'],
         description: getProcessDependingValue(config.localDb.description, 'string', undefined),
         name       : getProcessDependingValue(config.localDb.name, 'string', 'DefaultName'),
         storeName  : getProcessDependingValue(config.localDb.storeName, 'string', 'DefaultStoreName'),
